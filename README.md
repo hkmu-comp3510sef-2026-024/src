@@ -226,7 +226,7 @@ Password: admin123
 ## 📁 Project Structure
 
 ```
-src/
+src/                               # Repository root (git root)
 ├── app/                           # Main application package
 │   ├── __init__.py
 │   ├── application.py             # FastAPI app configuration
@@ -264,8 +264,7 @@ src/
 │   └── test_library_system.py
 ├── pyproject.toml                # Project configuration
 ├── main.py                       # Application entry point
-├── README.md                     # This file
-└── .env                          # Environment variables (not committed)
+└── README.md                     # This file
 ```
 
 ---
@@ -276,57 +275,83 @@ src/
 ```
 POST    /auth/register          # User registration
 POST    /auth/login             # User login
-GET     /auth/me                # Get current user
-PUT     /auth/profile           # Update user profile
 POST    /auth/logout            # Logout
 ```
 
-### Member Management
+### Member Operations
 ```
-GET     /member/profile         # Get member profile
-PUT     /member/profile         # Update member profile
-GET     /member/loans           # Get current loans
-GET     /member/reservations    # Get reservations
-POST    /member/reserve/:book_id # Create reservation
-GET     /member/notifications   # Get notifications
-GET     /member/fines           # Get outstanding fines
-```
-
-### Book Circulation
-```
-POST    /member/borrow/:copy_id           # Borrow a book
-POST    /member/return/:copy_id           # Return a book
-POST    /member/renew/:loan_id            # Renew a loan
-GET     /member/borrowing-history         # Borrowing history
+GET     /me                     # Get current user profile (includes membership + profile data)
+GET     /me/loans               # Get current loans and borrowing history
+POST    /loans/borrow           # Borrow a book (body: { bookId, copyId })
+POST    /loans/{loan_id}/renew  # Renew a loan
+GET     /me/reservations        # Get reservations
+POST    /reservations           # Create reservation (body: { bookId })
+DELETE  /reservations/{id}      # Cancel reservation
+GET     /me/notifications       # Get notifications
+POST    /me/notifications/{id}/read  # Mark notification as read (body: { read: true/false })
+GET     /books/{book_id}/available-copies  # List available copies of a book
+GET     /recommendations        # Get book recommendations
 ```
 
 ### Admin Operations
 ```
+# User Management
+GET     /admin/users            # List all users
+PUT     /admin/users/{user_id}/role  # Update user role
+
 # Book Management
 GET     /admin/books            # List all books
 POST    /admin/books            # Add new book
-PUT     /admin/books/:id        # Update book
-DELETE  /admin/books/:id        # Delete book
+PUT     /admin/books/{book_id}  # Update book
 
 # Copy Management
 GET     /admin/copies           # List copies
 POST    /admin/copies           # Add copy
-PUT     /admin/copies/:id       # Update copy status
+PUT     /admin/copies/{copy_id} # Update copy
+PUT     /admin/copies/{copy_id}/status  # Update copy status
 
 # Member Management
 GET     /admin/members          # List members
-POST    /admin/approve-membership/:id     # Approve member
-POST    /admin/freeze-membership/:id      # Freeze member
-POST    /admin/unfreeze-membership/:id    # Unfreeze member
+POST    /admin/members/{user_id}/approve   # Approve membership
+POST    /admin/members/{user_id}/freeze    # Freeze membership
+POST    /admin/members/{user_id}/unfreeze  # Unfreeze membership
+POST    /admin/members/{user_id}/renew      # Renew membership
+
+# Circulation
+GET     /admin/loans            # List all loans
+POST    /admin/loans/checkout   # Admin checkout (body: { userId, bookId, copyId, barcode })
+POST    /admin/loans/{loan_id}/checkin  # Admin checkin (body: { condition })
 
 # Fine Management
 GET     /admin/fines            # List fines
-POST    /admin/mark-fine-paid/:id         # Mark fine as paid
+POST    /admin/fines/{fine_id}/mark-paid  # Mark fine as paid (body: { waived: false })
 
-# Additional Admin Endpoints
-GET     /admin/loans            # All loans
-GET     /admin/reservations     # All reservations
-GET     /admin/audit-logs       # Audit trail
+# Audit & Policy
+GET     /admin/auditlogs        # Audit trail
+GET     /admin/reminder-policy  # Get reminder policy
+PUT     /admin/reminder-policy  # Update reminder policy
+
+# Announcements
+GET     /admin/announcements    # List announcements
+POST    /admin/announcements    # Create announcement
+PUT     /admin/announcements/{announcement_id}  # Update announcement
+
+# Reports
+GET     /admin/dashboard        # Dashboard stats
+GET     /admin/reports/summary  # Summary report
+
+# HTML Pages (admin portal)
+GET     /admin/portal           # Admin portal page
+GET     /admin/members-page     # Members management page
+GET     /admin/books-page       # Book management page
+GET     /admin/copies-page      # Copy management page
+GET     /admin/circulation-page # Circulation page
+GET     /admin/fines-page       # Fines page
+GET     /admin/auditlogs-page   # Audit logs page
+GET     /admin/reminder-policy-page  # Reminder policy page
+GET     /admin/reports-page     # Reports page
+GET     /admin/users-page       # User management page
+GET     /admin/announcements-page   # Announcements page
 ```
 
 ### Public API
