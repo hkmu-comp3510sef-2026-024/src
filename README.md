@@ -114,8 +114,8 @@ A modern, comprehensive library management system built with **FastAPI** and **P
 
 ### Step 1: Clone the Repository
 ```bash
-git clone https://github.com/your-username/library-management-system.git
-cd library-management-system
+git clone https://github.com/hkmu-comp3510sef-2026-024/src.git
+cd src
 ```
 
 ### Step 2: Start PostgreSQL with Docker
@@ -226,7 +226,7 @@ Password: admin123
 ## 📁 Project Structure
 
 ```
-library-management-system/
+src/
 ├── app/                           # Main application package
 │   ├── __init__.py
 │   ├── application.py             # FastAPI app configuration
@@ -525,8 +525,8 @@ gunicorn -w 4 -b 0.0.0.0:8000 main:app
 
 ```bash
 # Clone and install
-git clone [repo-url]
-cd library-management-system
+git clone https://github.com/hkmu-comp3510sef-2026-024/src.git
+cd src
 uv sync
 uv sync --group dev
 
