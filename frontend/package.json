@@ -1,0 +1,14 @@
+{
+  "name": "library-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host localhost --port 23124",
+    "build": "vite build",
+    "preview": "vite preview --host localhost --port 24124"
+  },
+  "devDependencies": {
+    "vite": "^7.1.7"
+  }
+}
