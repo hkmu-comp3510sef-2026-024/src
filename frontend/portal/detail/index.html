@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>图书详情</title>
+    <link rel="stylesheet" href="/static/assets/brand.css" />
+  </head>
+  <body class="">
+    <header class="site-header">
+      <div class="site-header__inner">
+        <a class="brandmark" href="/">
+          <span class="brandmark__icon" aria-hidden="true"></span>
+          <span class="brandmark__copy">
+            <strong>图书借阅与会员管理系统</strong>
+            <small>馆藏检索与读者服务</small>
+          </span>
+        </a>
+
+        <nav class="main-nav" aria-label="主导航">
+          <a class="" href="/">首页</a>
+          <a class="is-active" href="/portal">馆藏检索</a>
+          <a class="" href="/member">读者服务</a>
+        </nav>
+
+        <div class="header-actions">
+          <div class="lang-switch" aria-label="Language switch">
+            <button class="lang-switch__button" data-lang-switch="zh-CN" type="button">中文</button>
+            <button class="lang-switch__button" data-lang-switch="en" type="button">EN</button>
+          </div>
+          <a id="access-entry" class="header-action" href="/login">登录/注册</a>
+          <div id="account-menu" class="account-menu account-menu--hidden">
+            <a id="member-entry" class="account-menu__item account-menu__item--hidden" href="/member">进入读者服务</a>
+            <a id="admin-entry" class="account-menu__item account-menu__item--hidden" href="/admin/portal">进入管理后台</a>
+            <button id="logout-entry" class="account-menu__item account-menu__button" type="button">退出登录</button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <div class="notice-bar">
+      <div class="notice-bar__inner">
+        <span id="notice-title" class="notice-bar__label" data-i18n-skip="true">公告</span>
+        <p id="notice-message" data-i18n-skip="true">正在加载最新公告…</p>
+      </div>
+    </div>
+
+    <main class="page page--catalog-detail">
+      <section class="scene scene--portal">
+    <div class="scene-search scene-search--actions">
+      <input id="book-id" class="scene-search__field" placeholder="输入图书 ID" />
+      <a class="scene-search__ghost" href="/portal">返回馆藏检索</a>
+      <button id="detail-btn" class="scene-search__button" type="button">查看详情</button>
+    </div>
+
+    <div class="workspace-layout workspace-layout--equal">
+      <div class="workspace-main">
+        <section class="surface-card stack">
+          <div class="card-heading"><h2>图书详情</h2></div>
+          <div id="book-detail" class="list-shell"></div>
+        </section>
+      </div>
+
+      <aside class="workspace-side">
+        <section class="surface-card sticky-card stack">
+          <div class="card-heading"><h2>接下来做什么</h2></div>
+          <p class="aside-note">先确认这本书是否还可借，再决定要不要登录进入读者服务继续办理借阅或预约。</p>
+          <div class="result-actions">
+            <a class="soft-link" href="/login">登录 / 注册</a>
+            <a class="soft-link" href="/member">进入读者服务</a>
+            <a class="soft-link" href="/portal">继续找书</a>
+          </div>
+        </section>
+      </aside>
+    </div>
+  </section>
+    </main>
+
+    <script>
+      window.LibraryConfig = {
+        apiBase: 'http://localhost:23123'
+      };
+    </script>
+    <script src="/static/assets/i18n_runtime.js"></script>
+    <script src="/static/assets/base_runtime.js"></script>
+    <script>
+      (async () => {
+        const i18n = window.LibraryI18n;
+        const titleNode = document.getElementById('notice-title');
+        const messageNode = document.getElementById('notice-message');
+        let announcementMode = 'system';
+        const defaultTitle = '开放时间提醒';
+        const defaultMessage = '欢迎使用图书馆服务。借书、还书和预约办理请按页面提示操作。';
+        function renderSystemNotice() {
+          titleNode.textContent = i18n.t(defaultTitle);
+          messageNode.textContent = i18n.t(defaultMessage);
+        }
+        if (!titleNode || !messageNode) return;
+        titleNode.textContent = i18n.t('公告');
+        messageNode.textContent = i18n.t('正在加载最新公告…');
+        try {
+          const response = await fetch('/announcements/current');
+          const payload = await response.json();
+          if (payload?.data?.message) {
+            const nextTitle = payload?.data?.title || defaultTitle;
+            const nextMessage = payload.data.message;
+            announcementMode = nextTitle === defaultTitle && nextMessage === defaultMessage ? 'system' : 'custom';
+            titleNode.textContent = announcementMode === 'system' ? i18n.t(defaultTitle) : nextTitle;
+            messageNode.textContent = announcementMode === 'system' ? i18n.t(defaultMessage) : nextMessage;
+          } else {
+            renderSystemNotice();
+          }
+        } catch {
+          renderSystemNotice();
+        }
+        window.addEventListener('library-lang-changed', () => {
+          if (announcementMode === 'system') {
+            renderSystemNotice();
+          }
+        });
+      })();
+    </script>
+    <script>
+    const ui = window.LibraryUi;
+    const detail = document.getElementById('book-detail');
+
+    function renderInitialState() {
+      ui.render(
+        detail,
+        `<div class="feedback-stack">${ui.empty({
+          title: '先输入图书编号查看详情',
+          description: '如果你是从馆藏列表点进来的，系统会自动带上图书编号并直接展示详情。',
+        })}</div>`
+      );
+    }
+
+    function renderBookDetail(payload) {
+      const book = payload?.data;
+      if (!book) {
+        detail.innerHTML = `<div class="feedback-stack">${ui.empty({
+          title: '没有找到这本书',
+          description: '请确认图书编号是否正确，或者回到馆藏列表重新查找。',
+          actions: [{ href: '/portal', label: '回到馆藏检索' }],
+        })}</div>`;
+        return;
+      }
+
+      detail.innerHTML = `
+        <div class="feedback-stack">
+          ${ui.banner({
+            tone: 'info',
+            title: book.title,
+            description: `${book.author || '未知作者'} / ${book.category || '未分类'}`,
+          })}
+          <div class="metric-strip">
+            <div class="metric-chip">
+              <span class="metric-chip__label">图书编号</span>
+              <strong class="metric-chip__value">${ui.escapeHtml(book.id)}</strong>
+            </div>
+            <div class="metric-chip">
+              <span class="metric-chip__label">当前可借</span>
+              <strong class="metric-chip__value">${ui.escapeHtml(book.available ?? 0)}</strong>
+            </div>
+            <div class="metric-chip">
+              <span class="metric-chip__label">外借中</span>
+              <strong class="metric-chip__value">${ui.escapeHtml(book.on_loan ?? 0)}</strong>
+            </div>
+            <div class="metric-chip">
+              <span class="metric-chip__label">预约排队</span>
+              <strong class="metric-chip__value">${ui.escapeHtml(book.reservationQueueLength ?? 0)}</strong>
+            </div>
+          </div>
+            ${ui.card({
+              title: '馆藏情况',
+              badges: [ui.badge((book.available ?? 0) > 0 ? '可借' : '建议预约', (book.available ?? 0) > 0 ? 'success' : 'warning')],
+              description: book.description || '暂无简介',
+              details: ui.infoList([
+                { label: '出版年份', value: book.publish_year ?? '-' },
+                { label: '维修中', value: book.maintenance ?? 0 },
+                { label: '破损赔偿', value: book.damaged_compensation_effective_amount ?? book.damaged_compensation_amount ?? 0 },
+                { label: '遗失赔偿', value: book.lost_compensation_effective_amount ?? book.lost_compensation_amount ?? 0 },
+              ]),
+            })}
+          </div>
+        `;
+    }
+
+    function syncBookIdFromQuery() {
+      const queryBookId = new URLSearchParams(window.location.search).get('bookId');
+      if (queryBookId) {
+        document.getElementById('book-id').value = queryBookId;
+      }
+    }
+
+    async function loadDetail() {
+      const bookId = document.getElementById('book-id').value.trim();
+      if (!bookId) {
+        renderInitialState();
+        return;
+      }
+      const response = await fetch(`/books/${bookId}`);
+      renderBookDetail(await response.json().catch(() => ({ data: null })));
+    }
+
+    document.getElementById('detail-btn').onclick = loadDetail;
+
+    syncBookIdFromQuery();
+
+    if (document.getElementById('book-id').value.trim()) {
+      loadDetail();
+    } else {
+      renderInitialState();
+    }
+  </script>
+  </body>
+</html>

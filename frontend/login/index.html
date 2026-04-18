@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>统一登录</title>
+    <link rel="stylesheet" href="/static/assets/brand.css" />
+  </head>
+  <body class="">
+    <header class="site-header">
+      <div class="site-header__inner">
+        <a class="brandmark" href="/">
+          <span class="brandmark__icon" aria-hidden="true"></span>
+          <span class="brandmark__copy">
+            <strong>图书借阅与会员管理系统</strong>
+            <small>馆藏检索与读者服务</small>
+          </span>
+        </a>
+
+        <nav class="main-nav" aria-label="主导航">
+          <a class="" href="/">首页</a>
+          <a class="" href="/portal">馆藏检索</a>
+          <a class="" href="/member">读者服务</a>
+        </nav>
+
+        <div class="header-actions">
+          <div class="lang-switch" aria-label="Language switch">
+            <button class="lang-switch__button" data-lang-switch="zh-CN" type="button">中文</button>
+            <button class="lang-switch__button" data-lang-switch="en" type="button">EN</button>
+          </div>
+          <a id="access-entry" class="header-action" href="/login">登录/注册</a>
+          <div id="account-menu" class="account-menu account-menu--hidden">
+            <a id="member-entry" class="account-menu__item account-menu__item--hidden" href="/member">进入读者服务</a>
+            <a id="admin-entry" class="account-menu__item account-menu__item--hidden" href="/admin/portal">进入管理后台</a>
+            <button id="logout-entry" class="account-menu__item account-menu__button" type="button">退出登录</button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <div class="notice-bar">
+      <div class="notice-bar__inner">
+        <span id="notice-title" class="notice-bar__label" data-i18n-skip="true">公告</span>
+        <p id="notice-message" data-i18n-skip="true">正在加载最新公告…</p>
+      </div>
+    </div>
+
+    <main class="page page--login">
+      <section class="scene scene--portal">
+    <div class="scene-search scene-search--actions">
+      <div class="scene-search__input">读者、馆员和管理员都在这里登录，系统会自动进入对应页面。</div>
+      <a class="scene-search__ghost" href="/portal">先看馆藏</a>
+      <a class="scene-search__button" href="/register">新用户注册</a>
+    </div>
+
+    <div class="scene-columns scene-columns--narrow">
+      <section class="glass-card glass-card--feature">
+        <div class="card-heading"><h2>账号登录</h2></div>
+        <p class="card-intro">登录后会根据账号身份自动进入读者服务或管理后台，不需要再分别找两个入口。</p>
+
+        <div class="form-grid">
+          <div class="field">
+            <label for="login-email">邮箱</label>
+            <input id="login-email" value="reader@example.com" />
+          </div>
+          <div class="field">
+            <label for="login-password">密码</label>
+            <input id="login-password" type="password" value="secret12" />
+          </div>
+        </div>
+
+        <div class="button-row">
+          <button id="login-btn">登录并进入系统</button>
+        </div>
+        <p id="login-message" class="status-message"></p>
+        <div id="login-result" class="panel-stack"></div>
+      </section>
+    </div>
+  </section>
+    </main>
+
+    <script>
+      window.LibraryConfig = {
+        apiBase: 'http://localhost:23123'
+      };
+    </script>
+    <script src="/static/assets/i18n_runtime.js"></script>
+    <script src="/static/assets/base_runtime.js"></script>
+    <script>
+      (async () => {
+        const i18n = window.LibraryI18n;
+        const titleNode = document.getElementById('notice-title');
+        const messageNode = document.getElementById('notice-message');
+        let announcementMode = 'system';
+        const defaultTitle = '开放时间提醒';
+        const defaultMessage = '欢迎使用图书馆服务。借书、还书和预约办理请按页面提示操作。';
+        function renderSystemNotice() {
+          titleNode.textContent = i18n.t(defaultTitle);
+          messageNode.textContent = i18n.t(defaultMessage);
+        }
+        if (!titleNode || !messageNode) return;
+        titleNode.textContent = i18n.t('公告');
+        messageNode.textContent = i18n.t('正在加载最新公告…');
+        try {
+          const response = await fetch('/announcements/current');
+          const payload = await response.json();
+          if (payload?.data?.message) {
+            const nextTitle = payload?.data?.title || defaultTitle;
+            const nextMessage = payload.data.message;
+            announcementMode = nextTitle === defaultTitle && nextMessage === defaultMessage ? 'system' : 'custom';
+            titleNode.textContent = announcementMode === 'system' ? i18n.t(defaultTitle) : nextTitle;
+            messageNode.textContent = announcementMode === 'system' ? i18n.t(defaultMessage) : nextMessage;
+          } else {
+            renderSystemNotice();
+          }
+        } catch {
+          renderSystemNotice();
+        }
+        window.addEventListener('library-lang-changed', () => {
+          if (announcementMode === 'system') {
+            renderSystemNotice();
+          }
+        });
+      })();
+    </script>
+    <script>
+    const ui = window.LibraryUi;
+    const authNameKey = 'library_auth_name';
+    const authRoleKey = 'library_auth_role';
+    const memberKey = 'library_member_token';
+    const adminKey = 'library_admin_token';
+    const adminRoleKey = 'library_admin_role';
+    const loginResult = document.getElementById('login-result');
+
+    function setMessage(text) {
+      document.getElementById('login-message').textContent = text || '';
+    }
+
+    function clearStoredSession() {
+      [authNameKey, authRoleKey, memberKey, adminKey, adminRoleKey].forEach((key) => localStorage.removeItem(key));
+    }
+
+    async function api(url, options = {}) {
+      const response = await fetch(url, {
+        headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+        ...options,
+      });
+      const data = await response.json().catch(() => ({
+        error: { code: 'HTTP_ERROR', message: 'Server returned a non-JSON response', details: {} },
+      }));
+      return { response, data };
+    }
+
+    async function fetchProfile(token) {
+      const response = await fetch('/me', { credentials: 'same-origin' });
+      return response.json().catch(() => null);
+    }
+
+    function saveSession(payload, profilePayload, email) {
+      const role = payload.data.role;
+      const token = payload.data.token;
+      const displayName =
+        profilePayload?.data?.profile?.full_name ||
+        profilePayload?.data?.email ||
+        email;
+
+      clearStoredSession();
+      localStorage.setItem(authNameKey, displayName);
+      localStorage.setItem(authRoleKey, role);
+
+      if (role === 'MEMBER' || role === 'ADMIN') {
+        localStorage.setItem(memberKey, token);
+      }
+      if (role === 'ADMIN' || role === 'LIBRARIAN') {
+        localStorage.setItem(adminKey, token);
+        localStorage.setItem(adminRoleKey, role);
+      }
+    }
+
+    function targetPathForRole(role) {
+      if (role === 'ADMIN' || role === 'LIBRARIAN') {
+        return '/admin/portal';
+      }
+      return '/member';
+    }
+
+    function renderLoginResult(payload, profilePayload) {
+      if (payload?.error) {
+        ui.renderError(loginResult, payload, [
+          { href: '/portal', label: '先看馆藏' },
+          { href: '/register', label: '注册账号' },
+        ]);
+        return;
+      }
+
+      const role = payload.data.role;
+      const membershipStatus = payload.data.membershipStatus || profilePayload?.data?.membership?.status || null;
+      const actions = [
+        { href: targetPathForRole(role), label: role === 'MEMBER' ? '进入读者服务' : '进入管理后台' },
+      ];
+
+      if (role === 'ADMIN') {
+        actions.push({ href: '/member', label: '进入读者服务' });
+      }
+      actions.push({ href: '/portal', label: '继续浏览馆藏' });
+
+      const descriptions = [];
+      if (role === 'MEMBER') {
+        descriptions.push('当前账号会进入读者服务，可查看借阅、预约和通知。');
+      }
+      if (role === 'ADMIN') {
+        descriptions.push('当前账号同时拥有管理后台和读者服务权限。');
+      }
+      if (role === 'LIBRARIAN') {
+        descriptions.push('当前账号会进入管理后台，可办理借还、罚款和馆藏管理。');
+      }
+      if (membershipStatus && role !== 'LIBRARIAN') {
+        descriptions.push(`当前会员状态：${ui.labelForStatus(membershipStatus)}。`);
+      }
+
+      ui.render(
+        loginResult,
+        `<div class="feedback-stack">${ui.banner({
+          tone: 'success',
+          title: '登录成功',
+          description: descriptions.join(' '),
+          actions,
+        })}</div>`
+      );
+    }
+
+    document.getElementById('login-btn').onclick = async () => {
+      setMessage('');
+      const email = document.getElementById('login-email').value.trim();
+      const password = document.getElementById('login-password').value;
+
+      const { data } = await api('/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ email, password }),
+      });
+
+      if (!data?.data?.token) {
+        setMessage('登录失败，请检查账号和密码。');
+        renderLoginResult(data, null);
+        return;
+      }
+
+      const profilePayload = await fetchProfile(data.data.token);
+      saveSession(data, profilePayload, email);
+      window.dispatchEvent(new Event('library-auth-changed'));
+      renderLoginResult(data, profilePayload);
+      setMessage('登录成功，正在进入对应页面。');
+      window.location.href = targetPathForRole(data.data.role);
+    };
+  </script>
+  </body>
+</html>

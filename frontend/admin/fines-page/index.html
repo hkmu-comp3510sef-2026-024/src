@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>罚款列表</title>
+    <link rel="stylesheet" href="/static/assets/brand.css" />
+  </head>
+  <body class="">
+    <header class="site-header">
+      <div class="site-header__inner">
+        <a class="brandmark" href="/">
+          <span class="brandmark__icon" aria-hidden="true"></span>
+          <span class="brandmark__copy">
+            <strong>图书借阅与会员管理系统</strong>
+            <small>馆藏检索与读者服务</small>
+          </span>
+        </a>
+
+        <nav class="main-nav" aria-label="主导航">
+          <a class="" href="/">首页</a>
+          <a class="" href="/portal">馆藏检索</a>
+          <a class="" href="/member">读者服务</a>
+        </nav>
+
+        <div class="header-actions">
+          <div class="lang-switch" aria-label="Language switch">
+            <button class="lang-switch__button" data-lang-switch="zh-CN" type="button">中文</button>
+            <button class="lang-switch__button" data-lang-switch="en" type="button">EN</button>
+          </div>
+          <a id="access-entry" class="header-action" href="/login">登录/注册</a>
+          <div id="account-menu" class="account-menu account-menu--hidden">
+            <a id="member-entry" class="account-menu__item account-menu__item--hidden" href="/member">进入读者服务</a>
+            <a id="admin-entry" class="account-menu__item account-menu__item--hidden" href="/admin/portal">进入管理后台</a>
+            <button id="logout-entry" class="account-menu__item account-menu__button" type="button">退出登录</button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <div class="notice-bar">
+      <div class="notice-bar__inner">
+        <span id="notice-title" class="notice-bar__label" data-i18n-skip="true">公告</span>
+        <p id="notice-message" data-i18n-skip="true">正在加载最新公告…</p>
+      </div>
+    </div>
+
+    <main class="page page--admin-fines">
+      <section class="scene scene--admin">
+    <div class="scene-search scene-search--actions">
+      <div class="scene-search__input">先筛出未处理的罚款，再直接标记已缴或减免。</div>
+      <a class="scene-search__ghost" href="/admin/portal">返回管理工作台</a>
+      <button id="refresh-btn" class="scene-search__button" type="button">刷新罚款</button>
+    </div>
+
+    <div class="scene-columns">
+      <section class="glass-card">
+        <div class="card-heading"><h2>状态筛选</h2></div>
+        <div class="segmented">
+          <button id="status-all" type="button">全部</button>
+          <button id="status-unpaid" class="secondary" type="button">未缴</button>
+          <button id="status-paid" class="secondary" type="button">已缴</button>
+          <button id="status-waived" class="secondary" type="button">已减免</button>
+        </div>
+      </section>
+
+      <section class="glass-card glass-card--feature scene-card--span-2">
+        <div class="card-heading"><h2>罚款记录</h2></div>
+        <div id="fines-output" class="result-panel result-panel--rich"></div>
+      </section>
+
+      <section class="glass-card scene-card--span-3">
+        <div class="card-heading"><h2>操作反馈</h2></div>
+        <div id="feedback-output" class="result-panel result-panel--rich"></div>
+      </section>
+    </div>
+  </section>
+    </main>
+
+    <script>
+      window.LibraryConfig = {
+        apiBase: 'http://localhost:23123'
+      };
+    </script>
+    <script src="/static/assets/i18n_runtime.js"></script>
+    <script src="/static/assets/base_runtime.js"></script>
+    <script>
+      (async () => {
+        const i18n = window.LibraryI18n;
+        const titleNode = document.getElementById('notice-title');
+        const messageNode = document.getElementById('notice-message');
+        let announcementMode = 'system';
+        const defaultTitle = '开放时间提醒';
+        const defaultMessage = '欢迎使用图书馆服务。借书、还书和预约办理请按页面提示操作。';
+        function renderSystemNotice() {
+          titleNode.textContent = i18n.t(defaultTitle);
+          messageNode.textContent = i18n.t(defaultMessage);
+        }
+        if (!titleNode || !messageNode) return;
+        titleNode.textContent = i18n.t('公告');
+        messageNode.textContent = i18n.t('正在加载最新公告…');
+        try {
+          const response = await fetch('/announcements/current');
+          const payload = await response.json();
+          if (payload?.data?.message) {
+            const nextTitle = payload?.data?.title || defaultTitle;
+            const nextMessage = payload.data.message;
+            announcementMode = nextTitle === defaultTitle && nextMessage === defaultMessage ? 'system' : 'custom';
+            titleNode.textContent = announcementMode === 'system' ? i18n.t(defaultTitle) : nextTitle;
+            messageNode.textContent = announcementMode === 'system' ? i18n.t(defaultMessage) : nextMessage;
+          } else {
+            renderSystemNotice();
+          }
+        } catch {
+          renderSystemNotice();
+        }
+        window.addEventListener('library-lang-changed', () => {
+          if (announcementMode === 'system') {
+            renderSystemNotice();
+          }
+        });
+      })();
+    </script>
+    <script>
+    const ui = window.LibraryUi;
+    const auth = window.LibraryAuth;
+    const finesOutput = document.getElementById('fines-output');
+    const feedbackOutput = document.getElementById('feedback-output');
+    let fineFilter = '';
+    let finesState = [];
+
+    function ensureStaffSession() {
+      if (!auth.getRole() || !auth.canUseAdminPortal()) {
+        window.location.href = '/login';
+        return false;
+      }
+      return true;
+    }
+
+    async function adminApi(url, options = {}) {
+      if (!ensureStaffSession()) return null;
+      const response = await fetch(url, {
+        headers: {
+          'Content-Type': 'application/json',
+          ...auth.getAdminHeaders(),
+          ...(options.headers || {}),
+        },
+        credentials: 'same-origin',
+        ...options,
+      });
+      return response.json().catch(() => ({
+        error: { code: 'HTTP_ERROR', message: 'Server returned a non-JSON response', details: {} },
+      }));
+    }
+
+    function renderInitialState() {
+      ui.render(
+        finesOutput,
+        `<div class="feedback-stack">${ui.empty({
+          title: '罚款记录会显示在这里',
+          description: '默认展示当前筛选条件下的罚款记录，你也可以切换到未缴、已缴或已减免。',
+        })}</div>`
+      );
+      ui.render(
+        feedbackOutput,
+        `<div class="feedback-stack">${ui.empty({
+          title: '罚款处理结果会显示在这里',
+          description: '处理成功后，列表会自动刷新，方便继续处理下一条。',
+        })}</div>`
+      );
+    }
+
+    function renderFines(payload) {
+      if (payload?.error) {
+        ui.renderError(finesOutput, payload, [{ href: '/admin/portal', label: '返回工作台' }]);
+        return;
+      }
+
+      finesState = payload?.data?.items || [];
+      if (!finesState.length) {
+        ui.render(
+          finesOutput,
+          `<div class="feedback-stack">${ui.empty({
+            title: '当前筛选条件下没有罚款记录',
+            description: '可以切换状态筛选，或者稍后再回来查看。',
+          })}</div>`
+        );
+        return;
+      }
+
+      ui.render(
+        finesOutput,
+        `
+          <div class="feedback-stack">
+            ${ui.banner({
+              tone: 'info',
+              title: `当前共有 ${finesState.length} 条罚款记录`,
+              description: '未缴罚款会直接显示“标记已缴”和“减免”按钮。',
+            })}
+            ${finesState
+              .map((fine) =>
+                ui.card({
+                  title: `罚款 #${fine.id}`,
+                  badges: [ui.statusBadge(fine.status)],
+                  meta: [
+                    fine.userName || fine.userEmail ? `读者 ${fine.userName || fine.userEmail}` : `用户 ID ${fine.user_id}`,
+                    fine.bookTitle ? `图书 ${fine.bookTitle}` : `借阅编号 ${fine.loan_id}`,
+                  ],
+                  description: fine.reason || '暂无原因说明',
+                  details: ui.infoList([
+                    { label: '金额', value: `${fine.amount} ${fine.currency || 'CNY'}` },
+                    { label: '用户 ID', value: fine.user_id },
+                    { label: '借阅编号', value: fine.loan_id },
+                    { label: '处理人', value: fine.handled_by ?? '未处理' },
+                    { label: '支付时间', value: fine.paid_at ? ui.formatDateTime(fine.paid_at) : '未支付' },
+                  ]),
+                })
+              )
+              .join('')}
+          </div>
+        `
+      );
+
+      finesOutput.querySelectorAll('.result-card').forEach((card, index) => {
+        const fine = finesState[index];
+        if (!fine || fine.status !== 'UNPAID') return;
+        const actions = card.querySelector('.result-actions') || document.createElement('div');
+        actions.className = 'result-actions';
+        const payButton = document.createElement('button');
+        payButton.type = 'button';
+        payButton.className = 'secondary';
+        payButton.textContent = '标记已缴';
+        payButton.addEventListener('click', () => updateFine(fine.id, false));
+        const waiveButton = document.createElement('button');
+        waiveButton.type = 'button';
+        waiveButton.className = 'secondary';
+        waiveButton.textContent = '减免罚款';
+        waiveButton.addEventListener('click', () => updateFine(fine.id, true));
+        actions.innerHTML = '';
+        actions.append(payButton, waiveButton);
+        if (!card.querySelector('.result-actions')) {
+          card.append(actions);
+        }
+      });
+    }
+
+    function renderFineFeedback(payload, waived) {
+      if (payload?.error) {
+        ui.renderError(feedbackOutput, payload, [{ href: '/admin/fines-page', label: '刷新罚款列表' }]);
+        return;
+      }
+
+      const fine = payload?.data;
+      ui.render(
+        feedbackOutput,
+        `
+          <div class="feedback-stack">
+            ${ui.banner({
+              tone: 'success',
+              title: waived ? '罚款已减免' : '罚款已标记为已缴',
+              description: `罚款 #${fine.id} 的状态已经更新为 ${ui.labelForStatus(fine.status)}。`,
+              actions: [{ href: '/admin/fines-page', label: '继续处理下一条' }],
+            })}
+          </div>
+        `
+      );
+    }
+
+    async function updateFine(id, waived) {
+      const payload = await adminApi(`/admin/fines/${id}/mark-paid`, {
+        method: 'POST',
+        body: JSON.stringify({ waived }),
+      });
+      if (payload) {
+        renderFineFeedback(payload, waived);
+        if (!payload.error) {
+          loadFines();
+        }
+      }
+    }
+
+    async function loadFines() {
+      const query = new URLSearchParams({ page: '1', pageSize: '20' });
+      if (fineFilter) query.set('status', fineFilter);
+      const payload = await adminApi(`/admin/fines?${query.toString()}`);
+      if (payload) {
+        renderFines(payload);
+      }
+    }
+
+    function setFilter(value) {
+      fineFilter = value;
+      document.getElementById('status-all').classList.toggle('secondary', value !== '');
+      document.getElementById('status-unpaid').classList.toggle('secondary', value !== 'UNPAID');
+      document.getElementById('status-paid').classList.toggle('secondary', value !== 'PAID');
+      document.getElementById('status-waived').classList.toggle('secondary', value !== 'WAIVED');
+      loadFines();
+    }
+
+    document.getElementById('refresh-btn').onclick = loadFines;
+    document.getElementById('status-all').onclick = () => setFilter('');
+    document.getElementById('status-unpaid').onclick = () => setFilter('UNPAID');
+    document.getElementById('status-paid').onclick = () => setFilter('PAID');
+    document.getElementById('status-waived').onclick = () => setFilter('WAIVED');
+
+    auth.ready.then(() => {
+      if (ensureStaffSession()) {
+        renderInitialState();
+        loadFines();
+      }
+    });
+  </script>
+  </body>
+</html>

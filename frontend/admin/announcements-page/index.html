@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>公告管理</title>
+    <link rel="stylesheet" href="/static/assets/brand.css" />
+  </head>
+  <body class="">
+    <header class="site-header">
+      <div class="site-header__inner">
+        <a class="brandmark" href="/">
+          <span class="brandmark__icon" aria-hidden="true"></span>
+          <span class="brandmark__copy">
+            <strong>图书借阅与会员管理系统</strong>
+            <small>馆藏检索与读者服务</small>
+          </span>
+        </a>
+
+        <nav class="main-nav" aria-label="主导航">
+          <a class="" href="/">首页</a>
+          <a class="" href="/portal">馆藏检索</a>
+          <a class="" href="/member">读者服务</a>
+        </nav>
+
+        <div class="header-actions">
+          <div class="lang-switch" aria-label="Language switch">
+            <button class="lang-switch__button" data-lang-switch="zh-CN" type="button">中文</button>
+            <button class="lang-switch__button" data-lang-switch="en" type="button">EN</button>
+          </div>
+          <a id="access-entry" class="header-action" href="/login">登录/注册</a>
+          <div id="account-menu" class="account-menu account-menu--hidden">
+            <a id="member-entry" class="account-menu__item account-menu__item--hidden" href="/member">进入读者服务</a>
+            <a id="admin-entry" class="account-menu__item account-menu__item--hidden" href="/admin/portal">进入管理后台</a>
+            <button id="logout-entry" class="account-menu__item account-menu__button" type="button">退出登录</button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <div class="notice-bar">
+      <div class="notice-bar__inner">
+        <span id="notice-title" class="notice-bar__label" data-i18n-skip="true">公告</span>
+        <p id="notice-message" data-i18n-skip="true">正在加载最新公告…</p>
+      </div>
+    </div>
+
+    <main class="page page--admin-announcements">
+      <section class="scene scene--admin">
+    <div class="scene-search scene-search--actions">
+      <div class="scene-search__input">这里可以发布新的公告，或修改当前正在首页显示的公告。</div>
+      <a class="scene-search__ghost" href="/admin/portal">返回管理工作台</a>
+      <button id="refresh-btn" class="scene-search__button" type="button">刷新公告</button>
+    </div>
+
+    <div class="scene-columns">
+      <section class="glass-card glass-card--feature scene-card--span-2">
+        <div class="card-heading"><h2>公告列表</h2></div>
+        <div id="announcements-output" class="list-shell"></div>
+      </section>
+
+      <section class="glass-card">
+        <div class="card-heading"><h2>编辑公告</h2></div>
+        <div id="form-output" class="list-shell"></div>
+      </section>
+    </div>
+  </section>
+    </main>
+
+    <script>
+      window.LibraryConfig = {
+        apiBase: 'http://localhost:23123'
+      };
+    </script>
+    <script src="/static/assets/i18n_runtime.js"></script>
+    <script src="/static/assets/base_runtime.js"></script>
+    <script>
+      (async () => {
+        const i18n = window.LibraryI18n;
+        const titleNode = document.getElementById('notice-title');
+        const messageNode = document.getElementById('notice-message');
+        let announcementMode = 'system';
+        const defaultTitle = '开放时间提醒';
+        const defaultMessage = '欢迎使用图书馆服务。借书、还书和预约办理请按页面提示操作。';
+        function renderSystemNotice() {
+          titleNode.textContent = i18n.t(defaultTitle);
+          messageNode.textContent = i18n.t(defaultMessage);
+        }
+        if (!titleNode || !messageNode) return;
+        titleNode.textContent = i18n.t('公告');
+        messageNode.textContent = i18n.t('正在加载最新公告…');
+        try {
+          const response = await fetch('/announcements/current');
+          const payload = await response.json();
+          if (payload?.data?.message) {
+            const nextTitle = payload?.data?.title || defaultTitle;
+            const nextMessage = payload.data.message;
+            announcementMode = nextTitle === defaultTitle && nextMessage === defaultMessage ? 'system' : 'custom';
+            titleNode.textContent = announcementMode === 'system' ? i18n.t(defaultTitle) : nextTitle;
+            messageNode.textContent = announcementMode === 'system' ? i18n.t(defaultMessage) : nextMessage;
+          } else {
+            renderSystemNotice();
+          }
+        } catch {
+          renderSystemNotice();
+        }
+        window.addEventListener('library-lang-changed', () => {
+          if (announcementMode === 'system') {
+            renderSystemNotice();
+          }
+        });
+      })();
+    </script>
+    <script>
+    const ui = window.LibraryUi;
+    const auth = window.LibraryAuth;
+    const listOutput = document.getElementById('announcements-output');
+    const formOutput = document.getElementById('form-output');
+    let announcementsState = [];
+    let selectedAnnouncementId = null;
+
+    function ensureAdminOnly() {
+      if (!auth.getRole() || !auth.canUseAdminPortal() || !auth.isAdmin()) {
+        window.location.href = '/login';
+        return false;
+      }
+      return true;
+    }
+
+    async function adminApi(url, options = {}) {
+      if (!ensureAdminOnly()) return null;
+      const response = await fetch(url, {
+        headers: {
+          'Content-Type': 'application/json',
+          ...auth.getAdminHeaders(),
+          ...(options.headers || {}),
+        },
+        credentials: 'same-origin',
+        ...options,
+      });
+      return response.json().catch(() => ({
+        error: { code: 'HTTP_ERROR', message: 'Server returned a non-JSON response', details: {} },
+      }));
+    }
+
+    function getSelectedAnnouncement() {
+      return announcementsState.find((item) => item.id === selectedAnnouncementId) || null;
+    }
+
+    function renderAnnouncements(payload) {
+      if (payload?.error) {
+        ui.renderError(listOutput, payload, [{ href: '/admin/portal', label: '返回工作台' }]);
+        return;
+      }
+      announcementsState = payload?.data?.items || [];
+      if (!announcementsState.length) {
+        listOutput.innerHTML = ui.empty({ title: '还没有公告', description: '先创建一条公告。' });
+        renderForm();
+        return;
+      }
+      if (!announcementsState.some((item) => item.id === selectedAnnouncementId)) {
+        selectedAnnouncementId = announcementsState[0].id;
+      }
+      listOutput.innerHTML = announcementsState.map((item) => ui.card({
+        title: item.title,
+        badges: [item.is_active ? ui.badge('当前显示中', 'success') : ui.badge('未显示', 'neutral')],
+        description: item.message,
+      })).join('');
+      listOutput.querySelectorAll('.result-card').forEach((card, index) => {
+        card.addEventListener('click', () => {
+          selectedAnnouncementId = announcementsState[index].id;
+          renderForm();
+        });
+      });
+      renderForm();
+    }
+
+    function renderForm() {
+      const item = getSelectedAnnouncement();
+      const isCreate = !item;
+      formOutput.innerHTML = `
+        <div class="feedback-stack">
+          ${ui.card({
+            title: isCreate ? '新建公告' : `编辑公告（编号 ${item.id}）`,
+            badges: !isCreate && item.is_active ? [ui.badge('当前显示中', 'success')] : [],
+            description: '保存为“启用”后，首页公告会立即切换为这条内容。',
+          })}
+          <div class="inline-form">
+            <div class="field">
+              <label for="announcement-title">标题</label>
+              <input id="announcement-title" value="${ui.escapeHtml(item?.title || '')}" />
+            </div>
+            <div class="field">
+              <label for="announcement-message">内容</label>
+              <textarea id="announcement-message" rows="6">${ui.escapeHtml(item?.message || '')}</textarea>
+            </div>
+            <div class="field">
+              <label for="announcement-active">是否立即生效</label>
+              <select id="announcement-active">
+                <option value="true" ${item?.is_active ? 'selected' : ''}>立即显示</option>
+                <option value="false" ${item && !item.is_active ? 'selected' : ''}>先保存不显示</option>
+              </select>
+            </div>
+            <div class="button-row button-row--2">
+              <button id="save-announcement-btn">${isCreate ? '创建公告' : '保存公告'}</button>
+              <button class="secondary" id="new-announcement-btn" type="button">切换到新建</button>
+            </div>
+          </div>
+        </div>
+      `;
+      document.getElementById('save-announcement-btn').onclick = async () => {
+        const payload = await adminApi(item ? `/admin/announcements/${item.id}` : '/admin/announcements', {
+          method: item ? 'PUT' : 'POST',
+          body: JSON.stringify({
+            title: document.getElementById('announcement-title').value,
+            message: document.getElementById('announcement-message').value,
+            is_active: document.getElementById('announcement-active').value === 'true',
+          }),
+        });
+        if (!payload?.error) {
+          loadAnnouncements();
+        }
+      };
+      document.getElementById('new-announcement-btn').onclick = () => {
+        selectedAnnouncementId = null;
+        renderForm();
+      };
+    }
+
+    async function loadAnnouncements() {
+      const payload = await adminApi('/admin/announcements?page=1&pageSize=20');
+      if (payload) renderAnnouncements(payload);
+    }
+
+    document.getElementById('refresh-btn').onclick = loadAnnouncements;
+
+    auth.ready.then(() => {
+      if (ensureAdminOnly()) {
+        loadAnnouncements();
+      }
+    });
+  </script>
+  </body>
+</html>

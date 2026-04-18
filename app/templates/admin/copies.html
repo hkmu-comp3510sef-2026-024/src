@@ -1,0 +1,340 @@
+{% extends "base.html" %}
+
+{% block title %}馆藏副本{% endblock %}
+
+{% block page_class %}page--admin-copies{% endblock %}
+
+{% block content %}
+  <section class="scene scene--admin">
+    <div class="scene-search scene-search--actions">
+      <input id="copy-book-id-filter" class="scene-search__field" placeholder="按图书编号筛选馆藏副本，可留空" />
+      <a class="scene-search__ghost" href="/admin/portal">返回管理工作台</a>
+      <button id="refresh-btn" class="scene-search__button" type="button">刷新列表</button>
+    </div>
+
+    <div class="workspace-layout workspace-layout--wide">
+      <div class="workspace-main">
+        <section class="surface-card stack">
+          <div class="toolbar-row toolbar-row--spread">
+            <div>
+              <div class="card-heading"><h2>馆藏副本</h2></div>
+              <p class="card-intro">如果你是从图书页点进来的，系统会自动带入该图书的编号，只显示这本书的馆藏副本。</p>
+            </div>
+            <div class="toolbar-actions">
+              <button id="create-copy-btn" class="secondary" type="button">新建副本</button>
+            </div>
+          </div>
+
+          <div class="filter-grid">
+            <div class="field">
+              <label for="copy-status-filter">状态筛选</label>
+              <select id="copy-status-filter">
+                <option value="">全部状态</option>
+                <option value="AVAILABLE">可借</option>
+                <option value="ON_LOAN">外借中</option>
+                <option value="MAINTENANCE">维修中</option>
+                <option value="LOST">已丢失</option>
+                <option value="REMOVED">已下架</option>
+              </select>
+            </div>
+          </div>
+
+          <div id="copies-output" class="list-shell"></div>
+        </section>
+
+        <section class="surface-card stack">
+          <div class="card-heading"><h2>保存反馈</h2></div>
+          <div id="feedback-output" class="list-shell"></div>
+        </section>
+      </div>
+
+      <aside class="workspace-side">
+        <section class="surface-card sticky-card stack">
+          <div class="card-heading"><h2>编辑副本</h2></div>
+          <div id="form-output" class="panel-stack"></div>
+        </section>
+      </aside>
+    </div>
+  </section>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    const ui = window.LibraryUi;
+    const auth = window.LibraryAuth;
+    const copiesOutput = document.getElementById('copies-output');
+    const formOutput = document.getElementById('form-output');
+    const feedbackOutput = document.getElementById('feedback-output');
+    let copiesState = [];
+    let selectedCopyId = null;
+
+    function ensureStaffSession() {
+      if (!auth.getRole() || !auth.canUseAdminPortal()) {
+        window.location.href = '/login';
+        return false;
+      }
+      return true;
+    }
+
+    async function adminApi(url, options = {}) {
+      if (!ensureStaffSession()) return null;
+      const response = await fetch(url, {
+        headers: {
+          'Content-Type': 'application/json',
+          ...auth.getAdminHeaders(),
+          ...(options.headers || {}),
+        },
+        credentials: 'same-origin',
+        ...options,
+      });
+      return response.json().catch(() => ({
+        error: { code: 'HTTP_ERROR', message: 'Server returned a non-JSON response', details: {} },
+      }));
+    }
+
+    function getSelectedCopy() {
+      return copiesState.find((copy) => copy.id === selectedCopyId) || null;
+    }
+
+    function renderInitialState() {
+      ui.render(
+        copiesOutput,
+        `<div class="feedback-stack">${ui.empty({
+          title: '副本列表会显示在这里',
+          description: '点选副本卡片后，右侧可以直接编辑条码、位置和状态。',
+        })}</div>`
+      );
+      ui.render(
+        formOutput,
+        `<div class="feedback-stack">${ui.empty({
+          title: '先选中副本，或切换到新建模式',
+          description: '副本页只处理条码、位置和副本状态。',
+        })}</div>`
+      );
+      ui.render(
+        feedbackOutput,
+        `<div class="feedback-stack">${ui.empty({
+          title: '保存结果会显示在这里',
+          description: '状态变更和副本编辑成功后，列表会自动刷新。',
+        })}</div>`
+      );
+    }
+
+    function renderCopies(payload) {
+      if (payload?.error) {
+        ui.renderError(copiesOutput, payload, [{ href: '/admin/portal', label: '返回工作台' }]);
+        return;
+      }
+
+      copiesState = payload?.data?.items || [];
+      if (!copiesState.length) {
+        selectedCopyId = null;
+        ui.render(
+          copiesOutput,
+          `<div class="feedback-stack">${ui.empty({
+            title: '当前没有符合条件的副本',
+            description: '可以调整筛选条件，或者直接新建副本。',
+          })}</div>`
+        );
+        renderForm();
+        return;
+      }
+
+      if (!copiesState.some((copy) => copy.id === selectedCopyId)) {
+        selectedCopyId = copiesState[0].id;
+      }
+
+      ui.render(
+        copiesOutput,
+        `
+          <div class="feedback-stack">
+            ${ui.banner({
+              tone: 'info',
+              title: `当前找到 ${copiesState.length} 个馆藏副本`,
+              description: '点选任意副本卡片，即可在右侧修改位置、条码和状态。',
+            })}
+            <div class="entity-list">
+              ${copiesState
+                .map(
+                  (copy) => `
+                    <article class="entity-card ${copy.id === selectedCopyId ? 'workspace-card--active' : ''}" data-copy-id="${copy.id}">
+                      <div class="entity-card__header">
+                        <div>
+                          <h3 class="entity-card__title">馆藏副本 #${copy.id}</h3>
+                          <p class="entity-card__subtitle">${ui.t('图书编号')} ${copy.book_id} / ${ui.t('条码')} ${ui.escapeHtml(copy.barcode)}</p>
+                        </div>
+                        <div class="result-badges">
+                          ${ui.statusBadge(copy.status)}
+                        </div>
+                      </div>
+                      <p class="entity-card__summary">当前位置：${ui.escapeHtml(copy.location || '暂无位置')}</p>
+                    </article>
+                  `
+                )
+                .join('')}
+            </div>
+          </div>
+        `
+      );
+
+      copiesOutput.querySelectorAll('[data-copy-id]').forEach((node) => {
+        node.addEventListener('click', () => {
+          selectedCopyId = Number(node.getAttribute('data-copy-id'));
+          renderCopies({ data: { items: copiesState } });
+          renderForm();
+        });
+      });
+
+      renderForm();
+    }
+
+    function valueOf(copy, key, fallback = '') {
+      return copy && copy[key] !== null && copy[key] !== undefined ? copy[key] : fallback;
+    }
+
+    function renderForm() {
+      const copy = getSelectedCopy();
+      const isCreate = !copy;
+      ui.render(
+        formOutput,
+        `
+          <div class="feedback-stack">
+            ${ui.card({
+              title: isCreate ? '新建馆藏副本' : `编辑馆藏副本（编号 ${copy.id}）`,
+              badges: !isCreate ? [ui.statusBadge(copy.status)] : [],
+              description: isCreate ? '填写图书编号、条码、位置和状态后即可创建。' : '修改后保存，或只更新状态。',
+            })}
+            <div class="inline-form">
+              <div class="field">
+                <label for="copy-book-id">图书编号</label>
+                <input id="copy-book-id" value="${ui.escapeHtml(valueOf(copy, 'book_id'))}" />
+              </div>
+              <div class="field">
+                <label for="copy-barcode">条码</label>
+                <input id="copy-barcode" value="${ui.escapeHtml(valueOf(copy, 'barcode'))}" />
+              </div>
+              <div class="field">
+                <label for="copy-location">位置</label>
+                <input id="copy-location" value="${ui.escapeHtml(valueOf(copy, 'location'))}" />
+              </div>
+              <div class="field">
+                <label for="copy-status">状态</label>
+                <select id="copy-status">
+                  ${[
+                    ['AVAILABLE', '可借'],
+                    ['ON_LOAN', '外借中'],
+                    ['MAINTENANCE', '维修中'],
+                    ['LOST', '已丢失'],
+                    ['REMOVED', '已下架'],
+                  ]
+                    .map(([status, label]) => `<option value="${status}" ${valueOf(copy, 'status', 'AVAILABLE') === status ? 'selected' : ''}>${label}</option>`)
+                    .join('')}
+                </select>
+              </div>
+              <div class="button-row button-row--2">
+                <button id="save-copy-btn">${isCreate ? '创建副本' : '保存修改'}</button>
+                <button class="secondary" id="secondary-copy-btn" type="button">${isCreate ? '清空表单' : '只更新状态'}</button>
+              </div>
+            </div>
+          </div>
+        `
+      );
+
+      document.getElementById('save-copy-btn').onclick = saveCopy;
+      document.getElementById('secondary-copy-btn').onclick = isCreate
+        ? (() => {
+            selectedCopyId = null;
+            renderForm();
+          })
+        : updateCopyStatus;
+    }
+
+    function collectCopyPayload() {
+      return {
+        book_id: Number(document.getElementById('copy-book-id').value),
+        barcode: document.getElementById('copy-barcode').value,
+        location: document.getElementById('copy-location').value,
+        status: document.getElementById('copy-status').value,
+      };
+    }
+
+    function renderFeedback(payload, successTitle) {
+      if (payload?.error) {
+        ui.renderError(feedbackOutput, payload, [{ href: '/admin/copies-page', label: '刷新副本列表' }]);
+        return;
+      }
+
+      ui.render(
+        feedbackOutput,
+        `<div class="feedback-stack">${ui.banner({
+          tone: 'success',
+          title: successTitle,
+          description: '副本信息已保存，列表会自动同步到最新状态。',
+        })}</div>`
+      );
+    }
+
+    async function saveCopy() {
+      const copy = getSelectedCopy();
+      const payload = await adminApi(copy ? `/admin/copies/${copy.id}` : '/admin/copies', {
+        method: copy ? 'PUT' : 'POST',
+        body: JSON.stringify(collectCopyPayload()),
+      });
+      if (payload) {
+        renderFeedback(payload, copy ? '馆藏副本已更新' : '馆藏副本已创建');
+        if (!payload.error) {
+          selectedCopyId = payload?.data?.id || selectedCopyId;
+          loadCopies();
+        }
+      }
+    }
+
+    async function updateCopyStatus() {
+      const copy = getSelectedCopy();
+      if (!copy) return;
+      const payload = await adminApi(`/admin/copies/${copy.id}/status`, {
+        method: 'PUT',
+        body: JSON.stringify({ status: document.getElementById('copy-status').value }),
+      });
+      if (payload) {
+        renderFeedback(payload, '馆藏副本状态已更新');
+        if (!payload.error) {
+          loadCopies();
+        }
+      }
+    }
+
+    async function loadCopies() {
+      if (!ensureStaffSession()) return;
+      const pageQuery = new URLSearchParams(window.location.search);
+      if (pageQuery.get('bookId') && !document.getElementById('copy-book-id-filter').value.trim()) {
+        document.getElementById('copy-book-id-filter').value = pageQuery.get('bookId');
+      }
+      const query = new URLSearchParams({ page: '1', pageSize: '20' });
+      if (document.getElementById('copy-book-id-filter').value.trim()) {
+        query.set('bookId', document.getElementById('copy-book-id-filter').value.trim());
+      }
+      if (document.getElementById('copy-status-filter').value) {
+        query.set('status', document.getElementById('copy-status-filter').value);
+      }
+      const payload = await adminApi(`/admin/copies?${query.toString()}`);
+      if (payload) {
+        renderCopies(payload);
+      }
+    }
+
+    document.getElementById('refresh-btn').onclick = loadCopies;
+    document.getElementById('create-copy-btn').onclick = () => {
+      selectedCopyId = null;
+      renderForm();
+    };
+    document.getElementById('copy-status-filter').onchange = loadCopies;
+
+    auth.ready.then(() => {
+      if (ensureStaffSession()) {
+        renderInitialState();
+        loadCopies();
+      }
+    });
+  </script>
+{% endblock %}

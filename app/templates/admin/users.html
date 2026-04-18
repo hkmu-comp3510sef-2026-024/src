@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+
+{% block title %}权限管理{% endblock %}
+
+{% block page_class %}page--admin-users{% endblock %}
+
+{% block content %}
+  <section class="scene scene--admin">
+    <div class="scene-search scene-search--actions">
+      <input id="user-keyword" class="scene-search__field" placeholder="按邮箱、姓名或角色搜索账号" />
+      <a class="scene-search__ghost" href="/admin/portal">返回管理工作台</a>
+      <button id="refresh-btn" class="scene-search__button" type="button">刷新账号</button>
+    </div>
+
+    <div class="scene-columns">
+      <section class="glass-card glass-card--feature scene-card--span-2">
+        <div class="card-heading"><h2>账号列表</h2></div>
+        <div id="users-output" class="list-shell"></div>
+      </section>
+
+      <section class="glass-card">
+        <div class="card-heading"><h2>角色调整</h2></div>
+        <div id="detail-output" class="list-shell"></div>
+      </section>
+    </div>
+  </section>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    const ui = window.LibraryUi;
+    const auth = window.LibraryAuth;
+    const usersOutput = document.getElementById('users-output');
+    const detailOutput = document.getElementById('detail-output');
+    let usersState = [];
+    let selectedUserId = null;
+
+    function ensureAdminOnly() {
+      if (!auth.getRole() || !auth.canUseAdminPortal() || !auth.isAdmin()) {
+        window.location.href = '/login';
+        return false;
+      }
+      return true;
+    }
+
+    async function adminApi(url, options = {}) {
+      if (!ensureAdminOnly()) return null;
+      const response = await fetch(url, {
+        headers: {
+          'Content-Type': 'application/json',
+          ...auth.getAdminHeaders(),
+          ...(options.headers || {}),
+        },
+        credentials: 'same-origin',
+        ...options,
+      });
+      return response.json().catch(() => ({
+        error: { code: 'HTTP_ERROR', message: 'Server returned a non-JSON response', details: {} },
+      }));
+    }
+
+    function getSelectedUser() {
+      return usersState.find((item) => item.id === selectedUserId) || null;
+    }
+
+    function renderUsers(payload) {
+      if (payload?.error) {
+        ui.renderError(usersOutput, payload, [{ href: '/admin/portal', label: '返回工作台' }]);
+        return;
+      }
+      usersState = payload?.data?.items || [];
+      if (!usersState.length) {
+        ui.render(usersOutput, ui.empty({ title: '没有找到账号', description: '可以换个关键词再试。' }));
+        detailOutput.innerHTML = '';
+        return;
+      }
+      if (!usersState.some((item) => item.id === selectedUserId)) {
+        selectedUserId = usersState[0].id;
+      }
+      usersOutput.innerHTML = usersState.map((user) => ui.card({
+        title: user.fullName || user.email,
+        badges: [ui.statusBadge(user.role), user.membershipStatus ? ui.statusBadge(user.membershipStatus) : ''].filter(Boolean),
+        meta: [`账号编号 ${user.id}`, user.email],
+      })).join('');
+      usersOutput.querySelectorAll('.result-card').forEach((card, index) => {
+        card.addEventListener('click', () => {
+          selectedUserId = usersState[index].id;
+          renderDetail();
+        });
+      });
+      renderDetail();
+    }
+
+    function renderDetail() {
+      const user = getSelectedUser();
+      if (!user) return;
+      detailOutput.innerHTML = `
+        <div class="feedback-stack">
+          ${ui.card({
+            title: user.fullName || user.email,
+            meta: [`账号编号 ${user.id}`],
+            badges: [ui.statusBadge(user.role)],
+            details: ui.infoList([
+              { label: '邮箱', value: user.email },
+              { label: '会员状态', value: user.membershipStatus ? ui.labelForStatus(user.membershipStatus) : '无' },
+            ]),
+          })}
+          <div class="inline-form">
+            <div class="field">
+              <label for="user-role">角色</label>
+              <select id="user-role">
+                <option value="MEMBER" ${user.role === 'MEMBER' ? 'selected' : ''}>读者</option>
+                <option value="LIBRARIAN" ${user.role === 'LIBRARIAN' ? 'selected' : ''}>馆员</option>
+                <option value="ADMIN" ${user.role === 'ADMIN' ? 'selected' : ''}>管理员</option>
+              </select>
+            </div>
+            <div class="button-row">
+              <button id="save-role-btn">保存角色</button>
+            </div>
+          </div>
+        </div>
+      `;
+      document.getElementById('save-role-btn').onclick = async () => {
+        const payload = await adminApi(`/admin/users/${user.id}/role`, {
+          method: 'PUT',
+          body: JSON.stringify({ role: document.getElementById('user-role').value }),
+        });
+        if (!payload?.error) {
+          loadUsers();
+        }
+      };
+    }
+
+    async function loadUsers() {
+      const keyword = document.getElementById('user-keyword').value.trim();
+      const query = new URLSearchParams({ page: '1', pageSize: '30' });
+      if (keyword) query.set('keyword', keyword);
+      const payload = await adminApi(`/admin/users?${query.toString()}`);
+      if (payload) renderUsers(payload);
+    }
+
+    document.getElementById('refresh-btn').onclick = loadUsers;
+
+    auth.ready.then(() => {
+      if (ensureAdminOnly()) {
+        loadUsers();
+      }
+    });
+  </script>
+{% endblock %}

@@ -1,0 +1,328 @@
+{% extends "base.html" %}
+
+{% block title %}图书管理{% endblock %}
+
+{% block page_class %}page--admin-books{% endblock %}
+
+{% block content %}
+  <section class="scene scene--admin">
+    <div class="scene-search scene-search--actions">
+      <input id="book-search-keyword" class="scene-search__field" placeholder="按书名、作者或分类搜索图书" />
+      <a class="scene-search__ghost" href="/admin/portal">返回管理工作台</a>
+      <button id="refresh-btn" class="scene-search__button" type="button">刷新列表</button>
+    </div>
+
+    <div class="workspace-layout workspace-layout--wide">
+      <div class="workspace-main">
+        <section class="surface-card stack">
+          <div class="toolbar-row toolbar-row--spread">
+            <div>
+              <div class="card-heading"><h2>图书列表</h2></div>
+              <p class="card-intro">先找到图书，再决定是编辑图书信息，还是进入副本页继续管理馆藏副本。</p>
+            </div>
+            <div class="toolbar-actions">
+              <button id="create-mode-btn" class="secondary" type="button">新建图书</button>
+            </div>
+          </div>
+          <div id="books-output" class="list-shell"></div>
+        </section>
+
+        <section class="surface-card stack">
+          <div class="card-heading"><h2>保存反馈</h2></div>
+          <div id="feedback-output" class="list-shell"></div>
+        </section>
+      </div>
+
+      <aside class="workspace-side">
+        <section class="surface-card sticky-card stack">
+          <div class="card-heading"><h2>编辑图书</h2></div>
+          <div id="form-output" class="panel-stack"></div>
+        </section>
+      </aside>
+    </div>
+  </section>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    const ui = window.LibraryUi;
+    const auth = window.LibraryAuth;
+    const booksOutput = document.getElementById('books-output');
+    const formOutput = document.getElementById('form-output');
+    const feedbackOutput = document.getElementById('feedback-output');
+    let booksState = [];
+    let selectedBookId = null;
+
+    function ensureStaffSession() {
+      if (!auth.getRole() || !auth.canUseAdminPortal()) {
+        window.location.href = '/login';
+        return false;
+      }
+      return true;
+    }
+
+    async function adminApi(url, options = {}) {
+      if (!ensureStaffSession()) return null;
+      const response = await fetch(url, {
+        headers: {
+          'Content-Type': 'application/json',
+          ...auth.getAdminHeaders(),
+          ...(options.headers || {}),
+        },
+        credentials: 'same-origin',
+        ...options,
+      });
+      return response.json().catch(() => ({
+        error: { code: 'HTTP_ERROR', message: 'Server returned a non-JSON response', details: {} },
+      }));
+    }
+
+    function getSelectedBook() {
+      return booksState.find((book) => book.id === selectedBookId) || null;
+    }
+
+    function renderInitialState() {
+      ui.render(
+        booksOutput,
+        `<div class="feedback-stack">${ui.empty({
+          title: '图书列表会显示在这里',
+          description: '点选图书后，右侧可以直接编辑；如果要管理馆藏副本，直接点“查看馆藏副本”即可。',
+        })}</div>`
+      );
+      ui.render(
+        formOutput,
+        `<div class="feedback-stack">${ui.empty({
+          title: '先选中一本书，或新建图书',
+          description: '右侧只负责编辑图书信息；馆藏副本请从图书卡片进入对应页面处理。',
+        })}</div>`
+      );
+      ui.render(
+        feedbackOutput,
+        `<div class="feedback-stack">${ui.empty({
+          title: '保存结果会显示在这里',
+          description: '保存成功后，左侧列表会自动刷新到最新状态。',
+        })}</div>`
+      );
+    }
+
+    function renderBooks(payload) {
+      if (payload?.error) {
+        ui.renderError(booksOutput, payload, [{ href: '/admin/portal', label: '返回工作台' }]);
+        return;
+      }
+
+      booksState = payload?.data?.items || [];
+      if (!booksState.length) {
+        selectedBookId = null;
+        ui.render(
+          booksOutput,
+          `<div class="feedback-stack">${ui.empty({
+            title: '当前没有符合条件的图书',
+            description: '可以修改搜索条件，或者直接新建图书。',
+          })}</div>`
+        );
+        renderForm();
+        return;
+      }
+
+      if (!booksState.some((book) => book.id === selectedBookId)) {
+        selectedBookId = booksState[0].id;
+      }
+
+      ui.render(
+        booksOutput,
+        `
+          <div class="feedback-stack">
+            ${ui.banner({
+              tone: 'info',
+              title: `当前找到 ${booksState.length} 本图书`,
+              description: '点图书卡片可以编辑；点“查看馆藏副本”可以继续管理这本书的实体副本。',
+            })}
+            <div class="entity-list">
+              ${booksState
+                .map(
+                  (book) => `
+                    <article class="entity-card ${book.id === selectedBookId ? 'workspace-card--active' : ''}" data-book-id="${book.id}">
+                      <div class="entity-card__header">
+                        <div>
+                          <h3 class="entity-card__title">${ui.escapeHtml(book.title)}</h3>
+                          <p class="entity-card__subtitle">${ui.escapeHtml(book.author || '未知作者')} / ${ui.escapeHtml(book.category || '未分类')}</p>
+                        </div>
+                        <div class="result-badges">
+                          ${ui.badge(book.is_active ? '已上架' : '已下架', book.is_active ? 'success' : 'neutral')}
+                        </div>
+                      </div>
+                      <p class="entity-card__summary">${ui.escapeHtml(book.description || '暂无简介')}</p>
+                      <div class="metric-strip">
+                        <div class="metric-chip">
+                          <span class="metric-chip__label">破损赔偿</span>
+                          <strong class="metric-chip__value">${ui.escapeHtml(book.damaged_compensation_effective_amount ?? book.damaged_compensation_amount ?? 0)}</strong>
+                        </div>
+                        <div class="metric-chip">
+                          <span class="metric-chip__label">遗失赔偿</span>
+                          <strong class="metric-chip__value">${ui.escapeHtml(book.lost_compensation_effective_amount ?? book.lost_compensation_amount ?? 0)}</strong>
+                        </div>
+                      </div>
+                      <div class="entity-card__footer">
+                        <span class="field-note">图书编号 ${book.id}</span>
+                        <a class="soft-link" href="/admin/copies-page?bookId=${book.id}">查看馆藏副本</a>
+                      </div>
+                    </article>
+                  `
+                )
+                .join('')}
+            </div>
+          </div>
+        `
+      );
+
+      booksOutput.querySelectorAll('[data-book-id]').forEach((node) => {
+        node.addEventListener('click', () => {
+          selectedBookId = Number(node.getAttribute('data-book-id'));
+          renderBooks({ data: { items: booksState } });
+          renderForm();
+        });
+      });
+
+      renderForm();
+    }
+
+    function formValue(book, key, fallback = '') {
+      return book && book[key] !== null && book[key] !== undefined ? book[key] : fallback;
+    }
+
+    function renderForm() {
+      const book = getSelectedBook();
+      const isCreate = !book;
+      ui.render(
+        formOutput,
+        `
+          <div class="feedback-stack">
+            ${ui.card({
+              title: isCreate ? '新建图书' : `编辑图书（编号 ${book.id}）`,
+              badges: !isCreate ? [ui.badge(book.is_active ? '已上架' : '已下架', book.is_active ? 'success' : 'neutral')] : [],
+              description: isCreate ? '填写完整信息后即可创建。' : '保存后列表会自动同步；馆藏副本请从左侧卡片进入。',
+            })}
+            <div class="inline-form">
+              <div class="field">
+                <label for="book-title">书名</label>
+                <input id="book-title" value="${ui.escapeHtml(formValue(book, 'title'))}" />
+              </div>
+              <div class="field">
+                <label for="book-author">作者</label>
+                <input id="book-author" value="${ui.escapeHtml(formValue(book, 'author'))}" />
+              </div>
+              <div class="field">
+                <label for="book-category">分类</label>
+                <input id="book-category" value="${ui.escapeHtml(formValue(book, 'category'))}" />
+              </div>
+              <div class="field">
+                <label for="book-year">出版年份</label>
+                <input id="book-year" value="${ui.escapeHtml(formValue(book, 'publish_year', 2024))}" />
+              </div>
+              <div class="field">
+                <label for="book-damaged-compensation">破损赔偿金额</label>
+                <input id="book-damaged-compensation" placeholder="留空则使用系统默认" value="${ui.escapeHtml(formValue(book, 'damaged_compensation_amount', ''))}" />
+              </div>
+              <div class="field">
+                <label for="book-lost-compensation">遗失赔偿金额</label>
+                <input id="book-lost-compensation" placeholder="留空则使用系统默认" value="${ui.escapeHtml(formValue(book, 'lost_compensation_amount', ''))}" />
+              </div>
+              <div class="field">
+                <label for="book-description">简介</label>
+                <textarea id="book-description" rows="5">${ui.escapeHtml(formValue(book, 'description'))}</textarea>
+              </div>
+              <div class="field">
+                <label for="book-active">上架状态</label>
+                <select id="book-active">
+                  <option value="true" ${formValue(book, 'is_active', true) ? 'selected' : ''}>上架</option>
+                  <option value="false" ${formValue(book, 'is_active', true) ? '' : 'selected'}>下架</option>
+                </select>
+              </div>
+              <div class="button-row button-row--2">
+                <button id="save-book-btn">${isCreate ? '创建图书' : '保存修改'}</button>
+                <button class="secondary" id="reset-book-btn" type="button">${isCreate ? '清空表单' : '切换到新建'}</button>
+              </div>
+            </div>
+          </div>
+        `
+      );
+
+      document.getElementById('save-book-btn').onclick = saveBook;
+      document.getElementById('reset-book-btn').onclick = () => {
+        selectedBookId = null;
+        renderForm();
+      };
+    }
+
+    function collectBookPayload() {
+      const damagedValue = document.getElementById('book-damaged-compensation').value.trim();
+      const lostValue = document.getElementById('book-lost-compensation').value.trim();
+      return {
+        isbn: null,
+        title: document.getElementById('book-title').value,
+        author: document.getElementById('book-author').value,
+        category: document.getElementById('book-category').value,
+        description: document.getElementById('book-description').value,
+        publish_year: Number(document.getElementById('book-year').value || 2024),
+        damaged_compensation_amount: damagedValue === '' ? null : Number(damagedValue),
+        lost_compensation_amount: lostValue === '' ? null : Number(lostValue),
+        cover_image_url: null,
+        is_active: document.getElementById('book-active').value === 'true',
+      };
+    }
+
+    function renderFeedback(payload, successTitle) {
+      if (payload?.error) {
+        ui.renderError(feedbackOutput, payload, [{ href: '/admin/books-page', label: '刷新图书列表' }]);
+        return;
+      }
+
+      ui.render(
+        feedbackOutput,
+        `<div class="feedback-stack">${ui.banner({
+          tone: 'success',
+          title: successTitle,
+          description: '图书信息已保存，左侧列表会自动同步最新状态。',
+        })}</div>`
+      );
+    }
+
+    async function saveBook() {
+      const book = getSelectedBook();
+      const payload = await adminApi(book ? `/admin/books/${book.id}` : '/admin/books', {
+        method: book ? 'PUT' : 'POST',
+        body: JSON.stringify(collectBookPayload()),
+      });
+      if (payload) {
+        renderFeedback(payload, book ? '图书已更新' : '图书已创建');
+        if (!payload.error) {
+          selectedBookId = payload?.data?.id || selectedBookId;
+          loadBooks();
+        }
+      }
+    }
+
+    async function loadBooks() {
+      if (!ensureStaffSession()) return;
+      const keyword = document.getElementById('book-search-keyword').value.trim();
+      const payload = await adminApi(`/admin/books?${new URLSearchParams({ keyword, page: '1', pageSize: '20' }).toString()}`);
+      if (payload) {
+        renderBooks(payload);
+      }
+    }
+
+    document.getElementById('refresh-btn').onclick = loadBooks;
+    document.getElementById('create-mode-btn').onclick = () => {
+      selectedBookId = null;
+      renderForm();
+    };
+
+    auth.ready.then(() => {
+      if (ensureStaffSession()) {
+        renderInitialState();
+        loadBooks();
+      }
+    });
+  </script>
+{% endblock %}

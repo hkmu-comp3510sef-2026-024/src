@@ -1,0 +1,211 @@
+{% extends "base.html" %}
+
+{% block title %}图书列表{% endblock %}
+
+{% block page_class %}page--member-catalog{% endblock %}
+
+{% block content %}
+  <section class="scene scene--member">
+    <div class="scene-search scene-search--actions">
+      <input id="keyword" class="scene-search__field" placeholder="搜索你现在想借的书" />
+      <a class="scene-search__ghost" href="/member">返回读者首页</a>
+      <button id="load-books-btn" class="scene-search__button" type="button">立即筛选</button>
+    </div>
+
+    <div class="workspace-layout workspace-layout--wide">
+      <div class="workspace-main">
+        <section class="surface-card stack">
+          <div class="toolbar-row toolbar-row--spread">
+            <div>
+              <div class="card-heading"><h2>找书</h2></div>
+              <p class="card-intro">搜索框和筛选条件会实时联动，下面只展示一小批更值得你先看的书。</p>
+            </div>
+            <div class="toolbar-actions">
+              <a class="soft-link" href="/member/detail">按编号看详情</a>
+            </div>
+          </div>
+
+          <div class="filter-grid">
+            <div class="field">
+              <label for="author">作者</label>
+              <input id="author" placeholder="例如 东野圭吾 / Tolkien" />
+            </div>
+            <div class="field">
+              <label for="category">分类</label>
+              <select id="category">
+                <option value="">全部分类</option>
+                <option value="文学">文学</option>
+                <option value="科幻">科幻</option>
+                <option value="奇幻">奇幻</option>
+                <option value="推理">推理</option>
+                <option value="历史">历史</option>
+                <option value="传记">传记</option>
+                <option value="哲学">哲学</option>
+                <option value="心理">心理</option>
+                <option value="商业">商业</option>
+                <option value="科学">科学</option>
+                <option value="计算机">计算机</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="available-only">可借状态</label>
+              <select id="available-only">
+                <option value="false">全部图书</option>
+                <option value="true">只看现在能借</option>
+              </select>
+            </div>
+          </div>
+
+          <div id="result-output" class="list-shell"></div>
+        </section>
+      </div>
+
+      <aside class="workspace-side">
+        <section class="surface-card sticky-card stack">
+          <div class="card-heading"><h2>接下来</h2></div>
+          <p class="aside-note">看到想借的书后，直接点“查看详情”，再决定是立即借阅还是加入预约。</p>
+          <div class="result-actions">
+            <a class="soft-link" href="/member/loans-page">看我的借阅</a>
+            <a class="soft-link" href="/member/reservations-page">看我的预约</a>
+          </div>
+        </section>
+      </aside>
+    </div>
+  </section>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    const ui = window.LibraryUi;
+    const auth = window.LibraryAuth;
+    const output = document.getElementById('result-output');
+    function ensureReaderSession() {
+      if (!auth.getRole() || !auth.canUseMemberPortal()) {
+        window.location.href = '/login';
+        return false;
+      }
+      return true;
+    }
+
+    function renderInitialState() {
+      ui.render(
+        output,
+        `<div class="feedback-stack">${ui.empty({
+          title: '先从推荐书里挑一本',
+          description: '默认先给你看一小批推荐书目。输入关键词、作者或分类后，下面会自动切换结果。',
+          actions: [{ href: '/member/detail', label: '按编号看详情' }],
+        })}</div>`
+      );
+    }
+
+    function renderCatalog(payload, queryLabel, availableOnly) {
+      if (payload?.error) {
+        ui.renderError(output, payload, [{ href: '/member/detail', label: '改为按编号看详情' }]);
+        return;
+      }
+
+      const items = payload?.data?.items || [];
+      if (!items.length) {
+        ui.render(
+          output,
+          `<div class="feedback-stack">${ui.empty({
+            title: '没有找到符合条件的书',
+            description: queryLabel ? `当前条件“${queryLabel}”下没有结果，可以换个关键词试试。` : '当前没有可展示的馆藏结果。',
+            actions: [{ href: '/member/detail', label: '按编号看详情' }],
+          })}</div>`
+        );
+        return;
+      }
+
+      const title = queryLabel || availableOnly ? `当前找到 ${items.length} 本图书` : `先给你看 ${items.length} 本推荐书`;
+      const description = queryLabel
+        ? `已按“${queryLabel}”筛出相关馆藏。`
+        : availableOnly
+          ? '已筛出目前馆内可借的图书。'
+          : '先展示一批更容易借到、也更值得先看的馆藏。';
+
+      ui.render(
+        output,
+        `
+          <div class="feedback-stack">
+            ${ui.banner({ tone: queryLabel ? 'info' : 'success', title, description })}
+            <div class="entity-list">
+              ${items
+                .map(
+                  (book) => `
+                    <article class="entity-card">
+                      <div class="entity-card__header">
+                        <div>
+                          <h3 class="entity-card__title">${ui.escapeHtml(book.title)}</h3>
+                          <p class="entity-card__subtitle">${ui.escapeHtml(book.author || '未知作者')} / ${ui.escapeHtml(book.category || '未分类')}</p>
+                        </div>
+                        <div class="result-badges">
+                          ${ui.badge((book.availableCopies ?? 0) > 0 ? '现在能借' : '先放入预约', (book.availableCopies ?? 0) > 0 ? 'success' : 'warning')}
+                        </div>
+                      </div>
+                      <div class="metric-strip">
+                        <div class="metric-chip">
+                          <span class="metric-chip__label">图书编号</span>
+                          <strong class="metric-chip__value">${ui.escapeHtml(book.id)}</strong>
+                        </div>
+                        <div class="metric-chip">
+                          <span class="metric-chip__label">可借数量</span>
+                          <strong class="metric-chip__value">${ui.escapeHtml(book.availableCopies ?? 0)}</strong>
+                        </div>
+                      </div>
+                      <p class="entity-card__summary">${ui.escapeHtml(book.description || '暂无简介')}</p>
+                      <div class="entity-card__footer">
+                        <a class="soft-link" href="/member/detail?bookId=${encodeURIComponent(book.id)}">查看详情</a>
+                      </div>
+                    </article>
+                  `
+                )
+                .join('')}
+            </div>
+          </div>
+        `
+      );
+    }
+
+    async function loadBooks() {
+      if (!ensureReaderSession()) return;
+      const query = new URLSearchParams({
+        keyword: document.getElementById('keyword').value.trim(),
+        author: document.getElementById('author').value.trim(),
+        category: document.getElementById('category').value,
+        availableOnly: document.getElementById('available-only').value,
+        page: '1',
+        pageSize: '12',
+      });
+      const response = await fetch(`/books?${query.toString()}`);
+      const payload = await response.json().catch(() => ({
+        error: { code: 'HTTP_ERROR', message: 'Server returned a non-JSON response', details: {} },
+      }));
+      const queryLabel = [query.get('keyword'), query.get('author'), query.get('category')].filter(Boolean).join(' / ');
+      renderCatalog(payload, queryLabel, query.get('availableOnly') === 'true');
+    }
+
+    document.getElementById('load-books-btn').onclick = loadBooks;
+    ['keyword', 'author', 'category', 'available-only'].forEach((id) => {
+      document.getElementById(id).addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+          loadBooks();
+        }
+      });
+    });
+
+    auth.ready.then(() => {
+      if (ensureReaderSession()) {
+        renderInitialState();
+        loadBooks();
+      }
+    });
+
+    window.addEventListener('library-lang-changed', () => {
+      if (ensureReaderSession()) {
+        renderInitialState();
+        loadBooks();
+      }
+    });
+  </script>
+{% endblock %}

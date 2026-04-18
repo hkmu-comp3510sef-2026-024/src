@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>图书详情</title>
+    <link rel="stylesheet" href="/static/assets/brand.css" />
+  </head>
+  <body class="">
+    <header class="site-header">
+      <div class="site-header__inner">
+        <a class="brandmark" href="/">
+          <span class="brandmark__icon" aria-hidden="true"></span>
+          <span class="brandmark__copy">
+            <strong>图书借阅与会员管理系统</strong>
+            <small>馆藏检索与读者服务</small>
+          </span>
+        </a>
+
+        <nav class="main-nav" aria-label="主导航">
+          <a class="" href="/">首页</a>
+          <a class="" href="/portal">馆藏检索</a>
+          <a class="is-active" href="/member">读者服务</a>
+        </nav>
+
+        <div class="header-actions">
+          <div class="lang-switch" aria-label="Language switch">
+            <button class="lang-switch__button" data-lang-switch="zh-CN" type="button">中文</button>
+            <button class="lang-switch__button" data-lang-switch="en" type="button">EN</button>
+          </div>
+          <a id="access-entry" class="header-action" href="/login">登录/注册</a>
+          <div id="account-menu" class="account-menu account-menu--hidden">
+            <a id="member-entry" class="account-menu__item account-menu__item--hidden" href="/member">进入读者服务</a>
+            <a id="admin-entry" class="account-menu__item account-menu__item--hidden" href="/admin/portal">进入管理后台</a>
+            <button id="logout-entry" class="account-menu__item account-menu__button" type="button">退出登录</button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <div class="notice-bar">
+      <div class="notice-bar__inner">
+        <span id="notice-title" class="notice-bar__label" data-i18n-skip="true">公告</span>
+        <p id="notice-message" data-i18n-skip="true">正在加载最新公告…</p>
+      </div>
+    </div>
+
+    <main class="page page--member-detail">
+      <section class="scene scene--member">
+    <div class="scene-search scene-search--actions">
+      <input id="book-id" class="scene-search__field" placeholder="输入图书 ID" />
+      <a class="scene-search__ghost" href="/member/catalog">返回图书列表</a>
+      <button id="detail-btn" class="scene-search__button" type="button">查看详情</button>
+    </div>
+
+    <div class="workspace-layout workspace-layout--equal">
+      <div class="workspace-main">
+        <section class="surface-card stack">
+          <div class="card-heading"><h2>图书详情</h2></div>
+          <div id="detail-output" class="list-shell"></div>
+        </section>
+
+        <section class="surface-card stack">
+          <div class="toolbar-row toolbar-row--spread">
+            <div>
+              <div class="card-heading"><h2>同类图书</h2></div>
+              <p class="card-intro">如果这本书暂时不想借，或者你想继续比较，也可以直接看同类书。</p>
+            </div>
+            <div class="toolbar-actions">
+              <button id="related-btn" class="secondary" type="button">查看同类图书</button>
+            </div>
+          </div>
+          <div id="related-output" class="list-shell"></div>
+        </section>
+      </div>
+
+      <aside class="workspace-side">
+        <section class="surface-card sticky-card stack">
+          <div class="card-heading"><h2>当前操作</h2></div>
+          <p class="aside-note">你可以直接让系统自动分配副本，也可以先选一个具体副本再借阅；如果当前没有可借副本，再加入预约。</p>
+          <div id="copy-options-output" class="list-shell"></div>
+          <div class="button-row button-row--2">
+            <button id="borrow-selected-btn" type="button">借阅所选副本</button>
+            <button id="borrow-btn" class="secondary" type="button">系统自动分配</button>
+          </div>
+          <div class="button-row">
+            <button class="secondary" id="reserve-btn" type="button">加入预约</button>
+          </div>
+          <div id="feedback-output" class="list-shell"></div>
+        </section>
+      </aside>
+    </div>
+  </section>
+    </main>
+
+    <script>
+      window.LibraryConfig = {
+        apiBase: 'http://localhost:23123'
+      };
+    </script>
+    <script src="/static/assets/i18n_runtime.js"></script>
+    <script src="/static/assets/base_runtime.js"></script>
+    <script>
+      (async () => {
+        const i18n = window.LibraryI18n;
+        const titleNode = document.getElementById('notice-title');
+        const messageNode = document.getElementById('notice-message');
+        let announcementMode = 'system';
+        const defaultTitle = '开放时间提醒';
+        const defaultMessage = '欢迎使用图书馆服务。借书、还书和预约办理请按页面提示操作。';
+        function renderSystemNotice() {
+          titleNode.textContent = i18n.t(defaultTitle);
+          messageNode.textContent = i18n.t(defaultMessage);
+        }
+        if (!titleNode || !messageNode) return;
+        titleNode.textContent = i18n.t('公告');
+        messageNode.textContent = i18n.t('正在加载最新公告…');
+        try {
+          const response = await fetch('/announcements/current');
+          const payload = await response.json();
+          if (payload?.data?.message) {
+            const nextTitle = payload?.data?.title || defaultTitle;
+            const nextMessage = payload.data.message;
+            announcementMode = nextTitle === defaultTitle && nextMessage === defaultMessage ? 'system' : 'custom';
+            titleNode.textContent = announcementMode === 'system' ? i18n.t(defaultTitle) : nextTitle;
+            messageNode.textContent = announcementMode === 'system' ? i18n.t(defaultMessage) : nextMessage;
+          } else {
+            renderSystemNotice();
+          }
+        } catch {
+          renderSystemNotice();
+        }
+        window.addEventListener('library-lang-changed', () => {
+          if (announcementMode === 'system') {
+            renderSystemNotice();
+          }
+        });
+      })();
+    </script>
+    <script>
+    const ui = window.LibraryUi;
+    const auth = window.LibraryAuth;
+    const detailOutput = document.getElementById('detail-output');
+    const feedbackOutput = document.getElementById('feedback-output');
+    const relatedOutput = document.getElementById('related-output');
+    const copyOptionsOutput = document.getElementById('copy-options-output');
+    let currentBook = null;
+    let availableCopyOptions = [];
+    let selectedCopyId = null;
+
+    function ensureReaderSession() {
+      if (!auth.getRole() || !auth.canUseMemberPortal()) {
+        window.location.href = '/login';
+        return false;
+      }
+      return true;
+    }
+
+    async function memberApi(url, options = {}) {
+      if (!ensureReaderSession()) return null;
+      const response = await fetch(url, {
+        headers: {
+          'Content-Type': 'application/json',
+          ...auth.getReaderHeaders(),
+          ...(options.headers || {}),
+        },
+        credentials: 'same-origin',
+        ...options,
+      });
+      return response.json().catch(() => ({
+        error: { code: 'HTTP_ERROR', message: 'Server returned a non-JSON response', details: {} },
+      }));
+    }
+
+    function renderInitialState() {
+      currentBook = null;
+      availableCopyOptions = [];
+      selectedCopyId = null;
+
+      ui.render(
+        detailOutput,
+        `<div class="feedback-stack">${ui.empty({
+          title: '先输入图书编号查看详情',
+          description: '打开详情后，你就能直接借阅、预约，或继续看同类图书。',
+          actions: [{ href: '/member/catalog', label: '去图书列表挑选' }],
+        })}</div>`
+      );
+      ui.render(
+        copyOptionsOutput,
+        `<div class="feedback-stack">${ui.empty({
+          title: '这里会显示可借副本',
+          description: '如果这本书当前有多个可借副本，你可以先选一个，再决定怎么借。',
+        })}</div>`
+      );
+      ui.render(
+        feedbackOutput,
+        `<div class="feedback-stack">${ui.empty({
+          title: '操作结果会显示在这里',
+          description: '借阅成功、预约成功，或者失败原因，都会直接告诉你。',
+        })}</div>`
+      );
+      ui.render(
+        relatedOutput,
+        `<div class="feedback-stack">${ui.empty({
+          title: '点击“查看同类图书”后，这里会出现结果',
+          description: '适合当前这本书暂时借不到时继续找同主题替代项。',
+        })}</div>`
+      );
+    }
+
+    function renderCopyOptions() {
+      if (!currentBook) {
+        ui.render(
+          copyOptionsOutput,
+          `<div class="feedback-stack">${ui.empty({
+            title: '先加载一本书',
+            description: '加载图书详情后，我才知道当前有哪些可借副本。',
+          })}</div>`
+        );
+        return;
+      }
+
+      if (selectedCopyId && !availableCopyOptions.some((copy) => copy.id === selectedCopyId)) {
+        selectedCopyId = null;
+      }
+      if (!selectedCopyId && availableCopyOptions.length) {
+        selectedCopyId = availableCopyOptions[0].id;
+      }
+
+      if (!availableCopyOptions.length) {
+        ui.render(
+          copyOptionsOutput,
+          `<div class="feedback-stack">${ui.banner({
+            tone: 'warning',
+            title: '当前没有可借副本',
+            description: '这本书现在没有可直接借出的副本。如果你还想看，直接加入预约即可。',
+          })}</div>`
+        );
+        return;
+      }
+
+      ui.render(
+        copyOptionsOutput,
+        `
+          <div class="feedback-stack">
+            ${ui.banner({
+              tone: 'success',
+              title: `当前可选 ${availableCopyOptions.length} 个副本`,
+              description: '你可以手动指定一个副本借阅；如果不想选，直接点“系统自动分配”。',
+            })}
+            <div class="workspace-list">
+              ${availableCopyOptions
+                .map(
+                  (copy) => `
+                    <label class="workspace-card ${selectedCopyId === copy.id ? 'workspace-card--active' : ''}" data-copy-card="${copy.id}">
+                      <input type="radio" name="borrow-copy-option" value="${copy.id}" ${selectedCopyId === copy.id ? 'checked' : ''} />
+                      <div class="workspace-card__title">副本 #${ui.escapeHtml(copy.id)}</div>
+                      <div class="workspace-card__meta">
+                        <span>位置 ${ui.escapeHtml(copy.location || '馆内待定')}</span>
+                        <span>条码 ${ui.escapeHtml(copy.barcode || '暂无')}</span>
+                      </div>
+                    </label>
+                  `
+                )
+                .join('')}
+            </div>
+          </div>
+        `
+      );
+
+      document.querySelectorAll('[name="borrow-copy-option"]').forEach((input) => {
+        input.addEventListener('change', () => {
+          selectedCopyId = Number(input.value);
+          renderCopyOptions();
+        });
+      });
+
+      document.querySelectorAll('[data-copy-card]').forEach((card) => {
+        card.addEventListener('click', () => {
+          selectedCopyId = Number(card.getAttribute('data-copy-card'));
+          renderCopyOptions();
+        });
+      });
+    }
+
+    function renderDetail(payload, copiesPayload) {
+      if (payload?.error) {
+        ui.renderError(detailOutput, payload, [{ href: '/member/catalog', label: '回到图书列表' }]);
+        ui.render(
+          copyOptionsOutput,
+          `<div class="feedback-stack">${ui.empty({
+            title: '副本选择暂时不可用',
+            description: '先把这本书的详情加载出来，再继续操作。',
+          })}</div>`
+        );
+        return;
+      }
+
+      const book = payload?.data;
+      if (!book) {
+        ui.render(
+          detailOutput,
+          `<div class="feedback-stack">${ui.empty({
+            title: '没有找到这本书',
+            description: '请确认图书编号是否正确，或者回到图书列表重新查找。',
+            actions: [{ href: '/member/catalog', label: '回到图书列表' }],
+          })}</div>`
+        );
+        return;
+      }
+
+      currentBook = book;
+      availableCopyOptions = copiesPayload?.error ? [] : (copiesPayload?.data || []);
+      document.getElementById('book-id').value = book.id;
+
+      ui.render(
+        detailOutput,
+        `
+          <div class="feedback-stack">
+            ${ui.banner({
+              tone: 'info',
+              title: book.title,
+              description: `${book.author || '未知作者'} / ${book.category || '未分类'}`,
+            })}
+            <div class="metric-strip">
+              <div class="metric-chip">
+                <span class="metric-chip__label">图书编号</span>
+                <strong class="metric-chip__value">${ui.escapeHtml(book.id)}</strong>
+              </div>
+              <div class="metric-chip">
+                <span class="metric-chip__label">当前可借</span>
+                <strong class="metric-chip__value">${ui.escapeHtml(book.available ?? 0)}</strong>
+              </div>
+              <div class="metric-chip">
+                <span class="metric-chip__label">外借中</span>
+                <strong class="metric-chip__value">${ui.escapeHtml(book.on_loan ?? 0)}</strong>
+              </div>
+              <div class="metric-chip">
+                <span class="metric-chip__label">预约排队</span>
+                <strong class="metric-chip__value">${ui.escapeHtml(book.reservationQueueLength ?? 0)}</strong>
+              </div>
+            </div>
+            ${ui.card({
+              title: '这本书当前的馆藏情况',
+              badges: [ui.badge((book.available ?? 0) > 0 ? '可以借阅' : '建议预约', (book.available ?? 0) > 0 ? 'success' : 'warning')],
+              description: book.description || '暂无简介',
+              details: ui.infoList([
+                { label: '出版年份', value: book.publish_year ?? '暂无' },
+                { label: '维修中', value: book.maintenance ?? 0 },
+                { label: '破损赔偿', value: book.damaged_compensation_effective_amount ?? book.damaged_compensation_amount ?? 0 },
+                { label: '遗失赔偿', value: book.lost_compensation_effective_amount ?? book.lost_compensation_amount ?? 0 },
+              ]),
+            })}
+          </div>
+        `
+      );
+
+      if (copiesPayload?.error && copiesPayload?.error?.code !== 'NOT_FOUND') {
+        ui.renderError(copyOptionsOutput, copiesPayload, []);
+      } else {
+        if (copiesPayload?.error?.code === 'NOT_FOUND') {
+          availableCopyOptions = [];
+        }
+        renderCopyOptions();
+      }
+    }
+
+    function renderBorrowResult(payload, modeLabel) {
+      if (payload?.error) {
+        ui.renderError(feedbackOutput, payload, [
+          { href: '/member/loans-page', label: '查看我的借阅' },
+          { href: '/member/reservations-page', label: '查看我的预约' },
+        ]);
+        return;
+      }
+
+      const loan = payload?.data;
+      ui.render(
+        feedbackOutput,
+        `
+          <div class="feedback-stack">
+            ${ui.banner({
+              tone: 'success',
+              title: '借阅成功',
+              description: `${modeLabel}已完成，系统已将这本书借到你的账号下，请在 ${ui.formatDateTime(loan.due_at)} 前归还。`,
+              actions: [
+                { href: '/member/loans-page', label: '查看我的借阅' },
+                { href: `/member/detail?bookId=${encodeURIComponent(loan.book_id)}`, label: '继续看这本书' },
+              ],
+            })}
+          </div>
+        `
+      );
+    }
+
+    function renderReservationResult(payload) {
+      if (payload?.error) {
+        ui.renderError(feedbackOutput, payload, [{ href: '/member/reservations-page', label: '查看我的预约' }]);
+        return;
+      }
+
+      const reservation = payload?.data;
+      const ready = reservation.status === 'READY_FOR_PICKUP';
+      ui.render(
+        feedbackOutput,
+        `
+          <div class="feedback-stack">
+            ${ui.banner({
+              tone: ready ? 'success' : 'warning',
+              title: ready ? '预约成功，图书已可取' : '预约提交成功',
+              description: ready
+                ? `图书已经为你保留，请在 ${ui.formatDateTime(reservation.pickup_deadline_at)} 前完成借阅。`
+                : `你已经进入预约队列，目前排队序号为 ${reservation.queue_no ?? '暂无'}。`,
+              actions: [
+                { href: '/member/reservations-page', label: '查看我的预约' },
+                { href: '/member/notifications-page', label: '查看通知中心' },
+              ],
+            })}
+          </div>
+        `
+      );
+    }
+
+    function renderRelated(payload) {
+      if (payload?.error) {
+        ui.renderError(relatedOutput, payload, [{ href: '/member/catalog', label: '回到图书列表' }]);
+        return;
+      }
+
+      const items = payload?.data?.items || [];
+      if (!items.length) {
+        ui.render(
+          relatedOutput,
+          `<div class="feedback-stack">${ui.empty({
+            title: '这个分类下暂时没有更多图书',
+            description: '可以回到图书列表，换一个关键词或分类继续浏览。',
+            actions: [{ href: '/member/catalog', label: '回到图书列表' }],
+          })}</div>`
+        );
+        return;
+      }
+
+      ui.render(
+        relatedOutput,
+        `
+          <div class="feedback-stack">
+            ${ui.banner({
+              tone: 'info',
+              title: `“${ui.escapeHtml(currentBook?.category || '同类')}”分类下有 ${items.length} 本相关图书`,
+              description: '这些都是与当前图书同分类的馆藏，方便你继续比较和选择。',
+            })}
+            <div class="entity-list">
+              ${items
+                .map(
+                  (book) => `
+                    <article class="entity-card">
+                      <div class="entity-card__header">
+                        <div>
+                          <h3 class="entity-card__title">${ui.escapeHtml(book.title)}</h3>
+                          <p class="entity-card__subtitle">${ui.escapeHtml(book.author || '未知作者')} / ${ui.escapeHtml(book.category || '未分类')}</p>
+                        </div>
+                        <div class="result-badges">
+                          ${ui.badge(`可借 ${book.availableCopies ?? 0} 本`, (book.availableCopies ?? 0) > 0 ? 'success' : 'warning')}
+                        </div>
+                      </div>
+                      <p class="entity-card__summary">${ui.escapeHtml(book.description || '暂无简介')}</p>
+                      <div class="entity-card__footer">
+                        <a class="soft-link" href="/member/detail?bookId=${encodeURIComponent(book.id)}">查看详情</a>
+                      </div>
+                    </article>
+                  `
+                )
+                .join('')}
+            </div>
+          </div>
+        `
+      );
+    }
+
+    function syncBookIdFromQuery() {
+      const queryBookId = new URLSearchParams(window.location.search).get('bookId');
+      if (queryBookId) {
+        document.getElementById('book-id').value = queryBookId;
+      }
+    }
+
+    async function loadDetail() {
+      const id = document.getElementById('book-id').value.trim();
+      if (!id) {
+        renderInitialState();
+        return;
+      }
+
+      const [payload, copiesPayload] = await Promise.all([
+        fetch(`/books/${encodeURIComponent(id)}`)
+          .then((response) => response.json())
+          .catch(() => ({
+            error: { code: 'HTTP_ERROR', message: 'Server returned a non-JSON response', details: {} },
+          })),
+        memberApi(`/books/${encodeURIComponent(id)}/available-copies`),
+      ]);
+
+      renderDetail(payload, copiesPayload);
+    }
+
+    document.getElementById('detail-btn').onclick = loadDetail;
+
+    document.getElementById('borrow-selected-btn').onclick = async () => {
+      if (!currentBook) {
+        ui.render(
+          feedbackOutput,
+          `<div class="feedback-stack">${ui.banner({
+            tone: 'warning',
+            title: '请先查看一本书',
+            description: '先打开图书详情，我才能帮你指定副本借阅。',
+          })}</div>`
+        );
+        return;
+      }
+
+      if (!selectedCopyId) {
+        ui.render(
+          feedbackOutput,
+          `<div class="feedback-stack">${ui.banner({
+            tone: 'warning',
+            title: '请先选择一个副本',
+            description: '从上方可借副本列表里先选一个，再办理借阅。',
+          })}</div>`
+        );
+        return;
+      }
+
+      const payload = await memberApi('/loans/borrow', {
+        method: 'POST',
+        body: JSON.stringify({ copyId: Number(selectedCopyId) }),
+      });
+      if (payload && !payload.error) {
+        await loadDetail();
+      }
+      if (payload) renderBorrowResult(payload, '所选副本借阅');
+    };
+
+    document.getElementById('borrow-btn').onclick = async () => {
+      if (!currentBook) {
+        ui.render(
+          feedbackOutput,
+          `<div class="feedback-stack">${ui.banner({
+            tone: 'warning',
+            title: '请先查看一本书',
+            description: '先打开图书详情，我才能帮你直接借阅这本书。',
+          })}</div>`
+        );
+        return;
+      }
+
+      if ((currentBook.available ?? 0) <= 0) {
+        ui.render(
+          feedbackOutput,
+          `<div class="feedback-stack">${ui.banner({
+            tone: 'warning',
+            title: '当前没有可借副本',
+            description: '这本书现在没有可直接借出的副本，建议你直接加入预约。',
+          })}</div>`
+        );
+        return;
+      }
+
+      const payload = await memberApi('/loans/borrow', {
+        method: 'POST',
+        body: JSON.stringify({ bookId: Number(currentBook.id) }),
+      });
+      if (payload && !payload.error) {
+        await loadDetail();
+      }
+      if (payload) renderBorrowResult(payload, '系统自动分配借阅');
+    };
+
+    document.getElementById('reserve-btn').onclick = async () => {
+      if (!currentBook) {
+        ui.render(
+          feedbackOutput,
+          `<div class="feedback-stack">${ui.banner({
+            tone: 'warning',
+            title: '请先查看一本书',
+            description: '先打开图书详情，我才能帮你提交预约。',
+          })}</div>`
+        );
+        return;
+      }
+
+      const payload = await memberApi('/reservations', {
+        method: 'POST',
+        body: JSON.stringify({ bookId: Number(currentBook.id) }),
+      });
+      if (payload && !payload.error) {
+        await loadDetail();
+      }
+      if (payload) renderReservationResult(payload);
+    };
+
+    document.getElementById('related-btn').onclick = async () => {
+      if (!currentBook?.category) {
+        ui.render(
+          relatedOutput,
+          `<div class="feedback-stack">${ui.banner({
+            tone: 'warning',
+            title: '请先查看一本书的详情',
+            description: '我需要知道这本书的分类，才能为你找出同类图书。',
+          })}</div>`
+        );
+        return;
+      }
+      const response = await fetch(`/books?${new URLSearchParams({ category: currentBook.category, page: '1', pageSize: '10' }).toString()}`);
+      const payload = await response.json().catch(() => ({
+        error: { code: 'HTTP_ERROR', message: 'Server returned a non-JSON response', details: {} },
+      }));
+      renderRelated(payload);
+    };
+
+    auth.ready.then(() => {
+      if (ensureReaderSession()) {
+        syncBookIdFromQuery();
+        renderInitialState();
+        if (document.getElementById('book-id').value.trim()) {
+          loadDetail();
+        }
+      }
+    });
+  </script>
+  </body>
+</html>

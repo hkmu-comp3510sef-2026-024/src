@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>统计报表</title>
+    <link rel="stylesheet" href="/static/assets/brand.css" />
+  </head>
+  <body class="">
+    <header class="site-header">
+      <div class="site-header__inner">
+        <a class="brandmark" href="/">
+          <span class="brandmark__icon" aria-hidden="true"></span>
+          <span class="brandmark__copy">
+            <strong>图书借阅与会员管理系统</strong>
+            <small>馆藏检索与读者服务</small>
+          </span>
+        </a>
+
+        <nav class="main-nav" aria-label="主导航">
+          <a class="" href="/">首页</a>
+          <a class="" href="/portal">馆藏检索</a>
+          <a class="" href="/member">读者服务</a>
+        </nav>
+
+        <div class="header-actions">
+          <div class="lang-switch" aria-label="Language switch">
+            <button class="lang-switch__button" data-lang-switch="zh-CN" type="button">中文</button>
+            <button class="lang-switch__button" data-lang-switch="en" type="button">EN</button>
+          </div>
+          <a id="access-entry" class="header-action" href="/login">登录/注册</a>
+          <div id="account-menu" class="account-menu account-menu--hidden">
+            <a id="member-entry" class="account-menu__item account-menu__item--hidden" href="/member">进入读者服务</a>
+            <a id="admin-entry" class="account-menu__item account-menu__item--hidden" href="/admin/portal">进入管理后台</a>
+            <button id="logout-entry" class="account-menu__item account-menu__button" type="button">退出登录</button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <div class="notice-bar">
+      <div class="notice-bar__inner">
+        <span id="notice-title" class="notice-bar__label" data-i18n-skip="true">公告</span>
+        <p id="notice-message" data-i18n-skip="true">正在加载最新公告…</p>
+      </div>
+    </div>
+
+    <main class="page page--admin-reports">
+      <section class="scene scene--admin">
+    <div class="scene-search scene-search--actions">
+      <div class="scene-search__input">这里看全馆概况、热门借阅和当前逾期情况。</div>
+      <a class="scene-search__ghost" href="/admin/portal">返回管理工作台</a>
+      <button id="refresh-btn" class="scene-search__button" type="button">刷新报表</button>
+    </div>
+
+    <div class="scene-columns">
+      <section class="glass-card scene-card--span-3">
+        <div class="card-heading"><h2>总体概况</h2></div>
+        <div id="summary-output" class="list-shell"></div>
+      </section>
+
+      <section class="glass-card glass-card--feature">
+        <div class="card-heading"><h2>热门借阅</h2></div>
+        <div id="hot-books-output" class="list-shell"></div>
+      </section>
+
+      <section class="glass-card glass-card--feature">
+        <div class="card-heading"><h2>当前逾期</h2></div>
+        <div id="overdue-output" class="list-shell"></div>
+      </section>
+    </div>
+  </section>
+    </main>
+
+    <script>
+      window.LibraryConfig = {
+        apiBase: 'http://localhost:23123'
+      };
+    </script>
+    <script src="/static/assets/i18n_runtime.js"></script>
+    <script src="/static/assets/base_runtime.js"></script>
+    <script>
+      (async () => {
+        const i18n = window.LibraryI18n;
+        const titleNode = document.getElementById('notice-title');
+        const messageNode = document.getElementById('notice-message');
+        let announcementMode = 'system';
+        const defaultTitle = '开放时间提醒';
+        const defaultMessage = '欢迎使用图书馆服务。借书、还书和预约办理请按页面提示操作。';
+        function renderSystemNotice() {
+          titleNode.textContent = i18n.t(defaultTitle);
+          messageNode.textContent = i18n.t(defaultMessage);
+        }
+        if (!titleNode || !messageNode) return;
+        titleNode.textContent = i18n.t('公告');
+        messageNode.textContent = i18n.t('正在加载最新公告…');
+        try {
+          const response = await fetch('/announcements/current');
+          const payload = await response.json();
+          if (payload?.data?.message) {
+            const nextTitle = payload?.data?.title || defaultTitle;
+            const nextMessage = payload.data.message;
+            announcementMode = nextTitle === defaultTitle && nextMessage === defaultMessage ? 'system' : 'custom';
+            titleNode.textContent = announcementMode === 'system' ? i18n.t(defaultTitle) : nextTitle;
+            messageNode.textContent = announcementMode === 'system' ? i18n.t(defaultMessage) : nextMessage;
+          } else {
+            renderSystemNotice();
+          }
+        } catch {
+          renderSystemNotice();
+        }
+        window.addEventListener('library-lang-changed', () => {
+          if (announcementMode === 'system') {
+            renderSystemNotice();
+          }
+        });
+      })();
+    </script>
+    <script>
+    const ui = window.LibraryUi;
+    const auth = window.LibraryAuth;
+    const summaryOutput = document.getElementById('summary-output');
+    const hotBooksOutput = document.getElementById('hot-books-output');
+    const overdueOutput = document.getElementById('overdue-output');
+
+    function ensureAdminOnly() {
+      if (!auth.getRole() || !auth.canUseAdminPortal() || !auth.isAdmin()) {
+        window.location.href = '/login';
+        return false;
+      }
+      return true;
+    }
+
+    async function adminApi(url) {
+      if (!ensureAdminOnly()) return null;
+      const response = await fetch(url, {
+        headers: { ...auth.getAdminHeaders() },
+        credentials: 'same-origin',
+      });
+      return response.json().catch(() => ({
+        error: { code: 'HTTP_ERROR', message: 'Server returned a non-JSON response', details: {} },
+      }));
+    }
+
+    function renderReport(payload) {
+      if (payload?.error) {
+        ui.renderError(summaryOutput, payload, [{ href: '/admin/portal', label: '返回工作台' }]);
+        return;
+      }
+
+      const totals = payload?.data?.totals || {};
+      const hotBooks = payload?.data?.hotBooks || [];
+      const overdueLoans = payload?.data?.overdueLoans || [];
+
+      ui.render(
+        summaryOutput,
+        `${ui.metricGrid([
+          { label: '账号总数', value: totals.users ?? 0 },
+          { label: '图书总数', value: totals.books ?? 0 },
+          { label: '借阅中', value: totals.activeLoans ?? 0 },
+          { label: '逾期中', value: totals.overdueLoans ?? 0 },
+          { label: '未缴罚款', value: totals.unpaidFines ?? 0 },
+        ])}`
+      );
+
+      ui.render(
+        hotBooksOutput,
+        hotBooks.length
+          ? hotBooks.map((book) => ui.card({
+              title: book.title,
+              meta: [`图书编号 ${book.bookId}`],
+              details: ui.infoList([{ label: '借阅次数', value: book.borrowCount }]),
+            })).join('')
+          : ui.empty({ title: '还没有热门借阅数据', description: '只要产生借阅记录，这里就会自动汇总。' })
+      );
+
+      ui.render(
+        overdueOutput,
+        overdueLoans.length
+          ? overdueLoans.map((loan) => ui.card({
+              title: loan.bookTitle || `图书编号 ${loan.bookId}`,
+              meta: [`借阅编号 ${loan.loanId}`, `读者编号 ${loan.userId}`],
+              details: ui.infoList([{ label: '应还时间', value: ui.formatDateTime(loan.dueAt) }]),
+              actions: [{ href: '/admin/circulation-page', label: '去借书 / 还书页' }],
+            })).join('')
+          : ui.empty({ title: '当前没有逾期借阅', description: '只要出现逾期记录，这里就会列出来。' })
+      );
+    }
+
+    async function loadReport() {
+      const payload = await adminApi('/admin/reports/summary');
+      if (payload) renderReport(payload);
+    }
+
+    document.getElementById('refresh-btn').onclick = loadReport;
+
+    auth.ready.then(() => {
+      if (ensureAdminOnly()) {
+        loadReport();
+      }
+    });
+  </script>
+  </body>
+</html>

@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>管理工作台</title>
+    <link rel="stylesheet" href="/static/assets/brand.css" />
+  </head>
+  <body class="">
+    <header class="site-header">
+      <div class="site-header__inner">
+        <a class="brandmark" href="/">
+          <span class="brandmark__icon" aria-hidden="true"></span>
+          <span class="brandmark__copy">
+            <strong>图书借阅与会员管理系统</strong>
+            <small>馆藏检索与读者服务</small>
+          </span>
+        </a>
+
+        <nav class="main-nav" aria-label="主导航">
+          <a class="" href="/">首页</a>
+          <a class="" href="/portal">馆藏检索</a>
+          <a class="" href="/member">读者服务</a>
+        </nav>
+
+        <div class="header-actions">
+          <div class="lang-switch" aria-label="Language switch">
+            <button class="lang-switch__button" data-lang-switch="zh-CN" type="button">中文</button>
+            <button class="lang-switch__button" data-lang-switch="en" type="button">EN</button>
+          </div>
+          <a id="access-entry" class="header-action" href="/login">登录/注册</a>
+          <div id="account-menu" class="account-menu account-menu--hidden">
+            <a id="member-entry" class="account-menu__item account-menu__item--hidden" href="/member">进入读者服务</a>
+            <a id="admin-entry" class="account-menu__item account-menu__item--hidden" href="/admin/portal">进入管理后台</a>
+            <button id="logout-entry" class="account-menu__item account-menu__button" type="button">退出登录</button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <div class="notice-bar">
+      <div class="notice-bar__inner">
+        <span id="notice-title" class="notice-bar__label" data-i18n-skip="true">公告</span>
+        <p id="notice-message" data-i18n-skip="true">正在加载最新公告…</p>
+      </div>
+    </div>
+
+    <main class="page page--admin">
+      <section class="scene scene--admin">
+    <div class="scene-search scene-search--actions">
+      <div class="scene-search__input">先看今天要处理什么，再直接进入对应任务页。</div>
+      <a class="scene-search__ghost" href="/login">切换账号</a>
+      <button id="dashboard-btn" class="scene-search__button" type="button">刷新数据</button>
+    </div>
+
+    <div class="workspace-layout workspace-layout--wide">
+      <div class="workspace-main">
+        <section class="surface-card surface-card--hero stack">
+          <div id="role-output" class="list-shell"></div>
+          <div id="dashboard-output" class="list-shell"></div>
+        </section>
+
+        <section class="surface-card stack">
+          <div class="card-heading"><h2>常用入口</h2></div>
+          <div id="menu-output" class="entity-list"></div>
+        </section>
+      </div>
+
+      <aside class="workspace-side">
+        <section class="surface-card sticky-card stack">
+          <div class="card-heading"><h2>现在最常做什么</h2></div>
+          <div class="result-actions">
+            <a class="soft-link" href="/admin/circulation-page">借书 / 还书</a>
+            <a class="soft-link" href="/admin/fines-page">处理罚款</a>
+            <a class="soft-link" href="/admin/books-page">管理图书</a>
+          </div>
+          <p class="aside-note">如果读者来柜台还书，直接进入“借书 / 还书”，从借阅中列表点一条记录就能带入借阅编号。</p>
+        </section>
+      </aside>
+    </div>
+  </section>
+    </main>
+
+    <script>
+      window.LibraryConfig = {
+        apiBase: 'http://localhost:23123'
+      };
+    </script>
+    <script src="/static/assets/i18n_runtime.js"></script>
+    <script src="/static/assets/base_runtime.js"></script>
+    <script>
+      (async () => {
+        const i18n = window.LibraryI18n;
+        const titleNode = document.getElementById('notice-title');
+        const messageNode = document.getElementById('notice-message');
+        let announcementMode = 'system';
+        const defaultTitle = '开放时间提醒';
+        const defaultMessage = '欢迎使用图书馆服务。借书、还书和预约办理请按页面提示操作。';
+        function renderSystemNotice() {
+          titleNode.textContent = i18n.t(defaultTitle);
+          messageNode.textContent = i18n.t(defaultMessage);
+        }
+        if (!titleNode || !messageNode) return;
+        titleNode.textContent = i18n.t('公告');
+        messageNode.textContent = i18n.t('正在加载最新公告…');
+        try {
+          const response = await fetch('/announcements/current');
+          const payload = await response.json();
+          if (payload?.data?.message) {
+            const nextTitle = payload?.data?.title || defaultTitle;
+            const nextMessage = payload.data.message;
+            announcementMode = nextTitle === defaultTitle && nextMessage === defaultMessage ? 'system' : 'custom';
+            titleNode.textContent = announcementMode === 'system' ? i18n.t(defaultTitle) : nextTitle;
+            messageNode.textContent = announcementMode === 'system' ? i18n.t(defaultMessage) : nextMessage;
+          } else {
+            renderSystemNotice();
+          }
+        } catch {
+          renderSystemNotice();
+        }
+        window.addEventListener('library-lang-changed', () => {
+          if (announcementMode === 'system') {
+            renderSystemNotice();
+          }
+        });
+      })();
+    </script>
+    <script>
+    const ui = window.LibraryUi;
+    const auth = window.LibraryAuth;
+    const roleOutput = document.getElementById('role-output');
+    const dashboardOutput = document.getElementById('dashboard-output');
+    const menuOutput = document.getElementById('menu-output');
+
+    function ensureAdminSession() {
+      if (!auth.getRole() || !auth.canUseAdminPortal()) {
+        window.location.href = '/login';
+        return false;
+      }
+      return true;
+    }
+
+    async function adminApi(url, options = {}) {
+      if (!ensureAdminSession()) return null;
+      const response = await fetch(url, {
+        headers: {
+          'Content-Type': 'application/json',
+          ...auth.getAdminHeaders(),
+          ...(options.headers || {}),
+        },
+        credentials: 'same-origin',
+        ...options,
+      });
+      return response.json().catch(() => ({
+        error: { code: 'HTTP_ERROR', message: 'Server returned a non-JSON response', details: {} },
+      }));
+    }
+
+    function renderRoleSummary() {
+      const isAdmin = auth.isAdmin();
+      ui.render(
+        roleOutput,
+        `
+          ${ui.banner({
+            tone: 'info',
+            title: isAdmin ? '当前身份：管理员' : '当前身份：馆员',
+            description: isAdmin
+              ? '你可以处理会员审核、图书、借还、罚款、日志和提醒策略。'
+              : '你可以处理图书、借书、还书和罚款。',
+          })}
+        `
+      );
+    }
+
+    function renderDashboard(payload) {
+      if (payload?.error) {
+        ui.renderError(dashboardOutput, payload, [{ href: '/login', label: '重新登录' }]);
+        return;
+      }
+
+      const data = payload?.data || {};
+      const actions = [
+        {
+          href: '/admin/circulation-page',
+          label: data.activeLoans ? `查看 ${data.activeLoans} 条借阅中记录` : '进入借书 / 还书',
+        },
+        {
+          href: '/admin/fines-page',
+          label: '查看罚款记录',
+        },
+      ];
+
+      if (auth.isAdmin()) {
+        actions.push({
+          href: '/admin/members-page?status=PENDING',
+          label: data.pendingMembers ? `处理 ${data.pendingMembers} 个待审核会员` : '查看会员审核',
+        });
+      }
+
+      ui.render(
+        dashboardOutput,
+        `
+          <div class="feedback-stack">
+            ${ui.metricGrid([
+              { label: '账号总数', value: data.users ?? 0 },
+              { label: '图书总数', value: data.books ?? 0 },
+              { label: '借阅中', value: data.activeLoans ?? 0 },
+              { label: '待审核会员', value: data.pendingMembers ?? 0 },
+            ])}
+            <div class="result-actions">
+              ${actions.map((action) => `<a class="soft-link" href="${action.href}">${ui.escapeHtml(action.label)}</a>`).join('')}
+            </div>
+          </div>
+        `
+      );
+    }
+
+    function renderMenu() {
+      const isAdmin = auth.isAdmin();
+      const items = [
+        { href: '/admin/circulation-page', title: '借书 / 还书', description: '柜台借书、还书都从这里处理。', visible: true },
+        { href: '/admin/fines-page', title: '罚款处理', description: '查看未缴罚款，登记已缴或减免。', visible: true },
+        { href: '/admin/books-page', title: '图书管理', description: '新增、编辑图书；副本仍从图书页继续管理。', visible: true },
+        { href: '/admin/members-page', title: '会员审核', description: '审核、冻结、解冻和续期。', visible: isAdmin },
+        { href: '/admin/users-page', title: '权限管理', description: '查看账号角色并调整管理员、馆员、读者身份。', visible: isAdmin },
+        { href: '/admin/reports-page', title: '统计报表', description: '查看热门借阅、逾期和罚款概况。', visible: isAdmin },
+        { href: '/admin/announcements-page', title: '公告管理', description: '发布或调整当前首页公告。', visible: isAdmin },
+        { href: '/admin/auditlogs-page', title: '操作日志', description: '查看后台操作记录。', visible: isAdmin },
+        { href: '/admin/reminder-policy-page', title: '提醒策略', description: '配置到期与逾期提醒规则。', visible: isAdmin },
+      ].filter((item) => item.visible);
+
+      menuOutput.innerHTML = items
+        .map(
+          (item) => `
+            <article class="entity-card" data-href="${item.href}">
+              <div class="entity-card__header">
+                <div>
+                  <h3 class="entity-card__title">${ui.escapeHtml(item.title)}</h3>
+                  <p class="entity-card__subtitle">${ui.escapeHtml(item.description)}</p>
+                </div>
+              </div>
+              <div class="entity-card__footer">
+                <a class="soft-link" href="${item.href}">进入页面</a>
+              </div>
+            </article>
+          `
+        )
+        .join('');
+
+      menuOutput.querySelectorAll('[data-href]').forEach((node) => {
+        node.addEventListener('click', () => {
+          window.location.href = node.getAttribute('data-href');
+        });
+      });
+    }
+
+    async function loadDashboard() {
+      const payload = await adminApi('/admin/dashboard');
+      if (payload) {
+        renderDashboard(payload);
+      }
+    }
+
+    document.getElementById('dashboard-btn').onclick = loadDashboard;
+
+    auth.ready.then(() => {
+      if (ensureAdminSession()) {
+        renderRoleSummary();
+        renderMenu();
+        loadDashboard();
+      }
+    });
+  </script>
+  </body>
+</html>

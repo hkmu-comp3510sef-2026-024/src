@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>通知中心</title>
+    <link rel="stylesheet" href="/static/assets/brand.css" />
+  </head>
+  <body class="">
+    <header class="site-header">
+      <div class="site-header__inner">
+        <a class="brandmark" href="/">
+          <span class="brandmark__icon" aria-hidden="true"></span>
+          <span class="brandmark__copy">
+            <strong>图书借阅与会员管理系统</strong>
+            <small>馆藏检索与读者服务</small>
+          </span>
+        </a>
+
+        <nav class="main-nav" aria-label="主导航">
+          <a class="" href="/">首页</a>
+          <a class="" href="/portal">馆藏检索</a>
+          <a class="is-active" href="/member">读者服务</a>
+        </nav>
+
+        <div class="header-actions">
+          <div class="lang-switch" aria-label="Language switch">
+            <button class="lang-switch__button" data-lang-switch="zh-CN" type="button">中文</button>
+            <button class="lang-switch__button" data-lang-switch="en" type="button">EN</button>
+          </div>
+          <a id="access-entry" class="header-action" href="/login">登录/注册</a>
+          <div id="account-menu" class="account-menu account-menu--hidden">
+            <a id="member-entry" class="account-menu__item account-menu__item--hidden" href="/member">进入读者服务</a>
+            <a id="admin-entry" class="account-menu__item account-menu__item--hidden" href="/admin/portal">进入管理后台</a>
+            <button id="logout-entry" class="account-menu__item account-menu__button" type="button">退出登录</button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <div class="notice-bar">
+      <div class="notice-bar__inner">
+        <span id="notice-title" class="notice-bar__label" data-i18n-skip="true">公告</span>
+        <p id="notice-message" data-i18n-skip="true">正在加载最新公告…</p>
+      </div>
+    </div>
+
+    <main class="page page--member-notifications">
+      <section class="scene scene--member">
+    <div class="scene-search scene-search--actions">
+      <div class="scene-search__input">这里集中展示到期提醒、取书提醒和系统消息，并支持直接标记已读。</div>
+      <a class="scene-search__ghost" href="/member">返回读者首页</a>
+      <button id="refresh-btn" class="scene-search__button" type="button">刷新通知</button>
+    </div>
+
+    <div class="scene-columns">
+      <section class="glass-card">
+        <div class="card-heading"><h2>通知筛选</h2></div>
+        <div class="segmented">
+          <button id="filter-all" type="button">全部</button>
+          <button id="filter-unread" class="secondary" type="button">只看未读</button>
+          <button id="filter-read" class="secondary" type="button">只看已读</button>
+        </div>
+        <p class="field-note">未读消息会保留醒目状态，方便你优先处理到期和取书提醒。</p>
+      </section>
+
+      <section class="glass-card glass-card--feature scene-card--span-2">
+        <div class="card-heading"><h2>通知列表</h2></div>
+        <div id="notifications-output" class="result-panel result-panel--rich"></div>
+      </section>
+
+      <section class="glass-card scene-card--span-3">
+        <div class="card-heading"><h2>操作反馈</h2></div>
+        <div id="feedback-output" class="result-panel result-panel--rich"></div>
+      </section>
+    </div>
+  </section>
+    </main>
+
+    <script>
+      window.LibraryConfig = {
+        apiBase: 'http://localhost:23123'
+      };
+    </script>
+    <script src="/static/assets/i18n_runtime.js"></script>
+    <script src="/static/assets/base_runtime.js"></script>
+    <script>
+      (async () => {
+        const i18n = window.LibraryI18n;
+        const titleNode = document.getElementById('notice-title');
+        const messageNode = document.getElementById('notice-message');
+        let announcementMode = 'system';
+        const defaultTitle = '开放时间提醒';
+        const defaultMessage = '欢迎使用图书馆服务。借书、还书和预约办理请按页面提示操作。';
+        function renderSystemNotice() {
+          titleNode.textContent = i18n.t(defaultTitle);
+          messageNode.textContent = i18n.t(defaultMessage);
+        }
+        if (!titleNode || !messageNode) return;
+        titleNode.textContent = i18n.t('公告');
+        messageNode.textContent = i18n.t('正在加载最新公告…');
+        try {
+          const response = await fetch('/announcements/current');
+          const payload = await response.json();
+          if (payload?.data?.message) {
+            const nextTitle = payload?.data?.title || defaultTitle;
+            const nextMessage = payload.data.message;
+            announcementMode = nextTitle === defaultTitle && nextMessage === defaultMessage ? 'system' : 'custom';
+            titleNode.textContent = announcementMode === 'system' ? i18n.t(defaultTitle) : nextTitle;
+            messageNode.textContent = announcementMode === 'system' ? i18n.t(defaultMessage) : nextMessage;
+          } else {
+            renderSystemNotice();
+          }
+        } catch {
+          renderSystemNotice();
+        }
+        window.addEventListener('library-lang-changed', () => {
+          if (announcementMode === 'system') {
+            renderSystemNotice();
+          }
+        });
+      })();
+    </script>
+    <script>
+    const ui = window.LibraryUi;
+    const auth = window.LibraryAuth;
+    const notificationsOutput = document.getElementById('notifications-output');
+    const feedbackOutput = document.getElementById('feedback-output');
+    let notificationsState = [];
+    let filterState = 'all';
+
+    const typeLabels = {
+      DUE_REMINDER: '到期提醒',
+      OVERDUE_REMINDER: '逾期提醒',
+      RESERVATION_READY: '可取书提醒',
+      RESERVATION_EXPIRED: '预约失效提醒',
+      SYSTEM: '系统通知',
+    };
+
+    function ensureReaderSession() {
+      if (!auth.getRole() || !auth.canUseMemberPortal()) {
+        window.location.href = '/login';
+        return false;
+      }
+      return true;
+    }
+
+    async function memberApi(url, options = {}) {
+      if (!ensureReaderSession()) return null;
+      const response = await fetch(url, {
+        headers: {
+          'Content-Type': 'application/json',
+          ...auth.getReaderHeaders(),
+          ...(options.headers || {}),
+        },
+        credentials: 'same-origin',
+        ...options,
+      });
+      return response.json().catch(() => ({
+        error: { code: 'HTTP_ERROR', message: 'Server returned a non-JSON response', details: {} },
+      }));
+    }
+
+    function typeBadge(type) {
+      const label = typeLabels[type] || type || '通知';
+      const tone = type === 'RESERVATION_READY' ? 'success' : type === 'OVERDUE_REMINDER' ? 'danger' : 'info';
+      return ui.badge(label, tone);
+    }
+
+    function renderInitialState() {
+      ui.render(
+        notificationsOutput,
+        `<div class="feedback-stack">${ui.empty({
+          title: '通知列表会显示在这里',
+          description: '页面会自动加载你的站内提醒，并突出显示未读消息。',
+        })}</div>`
+      );
+      ui.render(
+        feedbackOutput,
+        `<div class="feedback-stack">${ui.empty({
+          title: '标记已读后的结果会显示在这里',
+          description: '已读后会同步刷新列表，让你更容易聚焦剩余未处理消息。',
+        })}</div>`
+      );
+    }
+
+    function getFilteredItems() {
+      if (filterState === 'unread') {
+        return notificationsState.filter((item) => item.status !== 'READ');
+      }
+      if (filterState === 'read') {
+        return notificationsState.filter((item) => item.status === 'READ');
+      }
+      return notificationsState;
+    }
+
+    function renderNotifications(payload) {
+      if (payload?.error) {
+        ui.renderError(notificationsOutput, payload, [{ href: '/member/loans-page', label: '查看我的借阅' }]);
+        return;
+      }
+
+      notificationsState = payload?.data || [];
+      const filtered = getFilteredItems();
+      const unreadCount = notificationsState.filter((item) => item.status !== 'READ').length;
+
+      if (!filtered.length) {
+        ui.render(
+          notificationsOutput,
+          `<div class="feedback-stack">${ui.empty({
+            title: filterState === 'all' ? '当前还没有通知' : '当前筛选条件下没有结果',
+            description: filterState === 'all'
+              ? '当图书到期、逾期或预约可取时，提醒会第一时间出现在这里。'
+              : '可以切换筛选条件，查看全部通知。',
+            actions: [{ href: '/member/catalog', label: '去图书列表' }],
+          })}</div>`
+        );
+        return;
+      }
+
+      ui.render(
+        notificationsOutput,
+        `
+          <div class="feedback-stack">
+            ${ui.banner({
+              tone: unreadCount ? 'warning' : 'info',
+              title: `共有 ${notificationsState.length} 条通知`,
+              description: unreadCount ? `其中还有 ${unreadCount} 条未读，建议优先处理最新提醒。` : '目前所有通知都已读。',
+            })}
+            ${filtered
+              .map((item) =>
+                ui.card({
+                  title: item.title || '通知',
+                  badges: [typeBadge(item.type), ui.statusBadge(item.status)],
+                  description: item.message || '暂无内容',
+                  details: ui.infoList([
+                    { label: '发送时间', value: item.send_at ? ui.formatDateTime(item.send_at) : '暂无' },
+                    { label: '已读时间', value: item.read_at ? ui.formatDateTime(item.read_at) : '尚未标记' },
+                    { label: '通知编号', value: item.id },
+                  ]),
+                  actions: item.status !== 'READ' ? [{ href: '#', label: 'mark-read' }] : [],
+                })
+              )
+              .join('')}
+          </div>
+        `
+      );
+
+      notificationsOutput.querySelectorAll('.result-card').forEach((card, index) => {
+        const item = filtered[index];
+        if (!item || item.status === 'READ') return;
+        const actions = card.querySelector('.result-actions');
+        if (!actions) return;
+        actions.innerHTML = '';
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'secondary';
+        button.textContent = '标记已读';
+        button.addEventListener('click', () => markRead(item.id));
+        actions.append(button);
+      });
+    }
+
+    function renderReadResult(payload) {
+      if (payload?.error) {
+        ui.renderError(feedbackOutput, payload, [{ href: '/member/notifications-page', label: '刷新通知列表' }]);
+        return;
+      }
+
+      const item = payload?.data;
+      ui.render(
+        feedbackOutput,
+        `
+          <div class="feedback-stack">
+            ${ui.banner({
+              tone: 'success',
+              title: '通知已标记为已读',
+              description: `“${item.title || '这条通知'}”已经从未读状态中移除。`,
+              actions: [{ href: '/member/notifications-page', label: '刷新通知列表' }],
+            })}
+          </div>
+        `
+      );
+    }
+
+    async function markRead(id) {
+      const payload = await memberApi(`/me/notifications/${id}/read`, {
+        method: 'POST',
+        body: JSON.stringify({ read: true }),
+      });
+      if (payload) {
+        renderReadResult(payload);
+        if (!payload.error) {
+          loadPage();
+        }
+      }
+    }
+
+    async function loadPage() {
+      const payload = await memberApi('/me/notifications');
+      if (payload) {
+        renderNotifications(payload);
+      }
+    }
+
+    function setFilter(next) {
+      filterState = next;
+      document.getElementById('filter-all').classList.toggle('secondary', next !== 'all');
+      document.getElementById('filter-unread').classList.toggle('secondary', next !== 'unread');
+      document.getElementById('filter-read').classList.toggle('secondary', next !== 'read');
+      renderNotifications({ data: notificationsState });
+    }
+
+    document.getElementById('refresh-btn').onclick = loadPage;
+    document.getElementById('filter-all').onclick = () => setFilter('all');
+    document.getElementById('filter-unread').onclick = () => setFilter('unread');
+    document.getElementById('filter-read').onclick = () => setFilter('read');
+
+    auth.ready.then(() => {
+      if (ensureReaderSession()) {
+        renderInitialState();
+        loadPage();
+      }
+    });
+  </script>
+  </body>
+</html>

@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>提醒策略配置</title>
+    <link rel="stylesheet" href="/static/assets/brand.css" />
+  </head>
+  <body class="">
+    <header class="site-header">
+      <div class="site-header__inner">
+        <a class="brandmark" href="/">
+          <span class="brandmark__icon" aria-hidden="true"></span>
+          <span class="brandmark__copy">
+            <strong>图书借阅与会员管理系统</strong>
+            <small>馆藏检索与读者服务</small>
+          </span>
+        </a>
+
+        <nav class="main-nav" aria-label="主导航">
+          <a class="" href="/">首页</a>
+          <a class="" href="/portal">馆藏检索</a>
+          <a class="" href="/member">读者服务</a>
+        </nav>
+
+        <div class="header-actions">
+          <div class="lang-switch" aria-label="Language switch">
+            <button class="lang-switch__button" data-lang-switch="zh-CN" type="button">中文</button>
+            <button class="lang-switch__button" data-lang-switch="en" type="button">EN</button>
+          </div>
+          <a id="access-entry" class="header-action" href="/login">登录/注册</a>
+          <div id="account-menu" class="account-menu account-menu--hidden">
+            <a id="member-entry" class="account-menu__item account-menu__item--hidden" href="/member">进入读者服务</a>
+            <a id="admin-entry" class="account-menu__item account-menu__item--hidden" href="/admin/portal">进入管理后台</a>
+            <button id="logout-entry" class="account-menu__item account-menu__button" type="button">退出登录</button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <div class="notice-bar">
+      <div class="notice-bar__inner">
+        <span id="notice-title" class="notice-bar__label" data-i18n-skip="true">公告</span>
+        <p id="notice-message" data-i18n-skip="true">正在加载最新公告…</p>
+      </div>
+    </div>
+
+    <main class="page page--admin-policy">
+      <section class="scene scene--admin">
+    <div class="scene-search scene-search--actions">
+      <div class="scene-search__input">在这里查看当前提醒规则，并按需要调整提醒天数。</div>
+      <a class="scene-search__ghost" href="/admin/portal">返回管理工作台</a>
+      <button id="reload-btn" class="scene-search__button" type="button">重新加载</button>
+    </div>
+
+    <div class="scene-columns">
+      <section class="glass-card">
+        <div class="card-heading"><h2>当前策略</h2></div>
+        <div id="policy-summary" class="panel-stack"></div>
+      </section>
+
+      <section class="glass-card glass-card--feature">
+        <div class="card-heading"><h2>编辑策略</h2></div>
+        <div class="inline-form">
+          <div class="field">
+            <label for="due-days">到期前提醒天数</label>
+            <input id="due-days" value="3,1,0" />
+          </div>
+          <div class="field">
+            <label for="overdue-days">逾期后提醒天数</label>
+            <input id="overdue-days" value="1,3,7" />
+          </div>
+          <div class="button-row">
+            <button id="save-btn">保存策略</button>
+          </div>
+          <p class="field-note">用半角逗号分隔天数，例如 `3,1,0` 表示到期前 3 天、1 天和当天提醒。</p>
+        </div>
+      </section>
+
+      <section class="glass-card">
+        <div class="card-heading"><h2>保存反馈</h2></div>
+        <div id="feedback-output" class="result-panel result-panel--rich"></div>
+      </section>
+    </div>
+  </section>
+    </main>
+
+    <script>
+      window.LibraryConfig = {
+        apiBase: 'http://localhost:23123'
+      };
+    </script>
+    <script src="/static/assets/i18n_runtime.js"></script>
+    <script src="/static/assets/base_runtime.js"></script>
+    <script>
+      (async () => {
+        const i18n = window.LibraryI18n;
+        const titleNode = document.getElementById('notice-title');
+        const messageNode = document.getElementById('notice-message');
+        let announcementMode = 'system';
+        const defaultTitle = '开放时间提醒';
+        const defaultMessage = '欢迎使用图书馆服务。借书、还书和预约办理请按页面提示操作。';
+        function renderSystemNotice() {
+          titleNode.textContent = i18n.t(defaultTitle);
+          messageNode.textContent = i18n.t(defaultMessage);
+        }
+        if (!titleNode || !messageNode) return;
+        titleNode.textContent = i18n.t('公告');
+        messageNode.textContent = i18n.t('正在加载最新公告…');
+        try {
+          const response = await fetch('/announcements/current');
+          const payload = await response.json();
+          if (payload?.data?.message) {
+            const nextTitle = payload?.data?.title || defaultTitle;
+            const nextMessage = payload.data.message;
+            announcementMode = nextTitle === defaultTitle && nextMessage === defaultMessage ? 'system' : 'custom';
+            titleNode.textContent = announcementMode === 'system' ? i18n.t(defaultTitle) : nextTitle;
+            messageNode.textContent = announcementMode === 'system' ? i18n.t(defaultMessage) : nextMessage;
+          } else {
+            renderSystemNotice();
+          }
+        } catch {
+          renderSystemNotice();
+        }
+        window.addEventListener('library-lang-changed', () => {
+          if (announcementMode === 'system') {
+            renderSystemNotice();
+          }
+        });
+      })();
+    </script>
+    <script>
+    const ui = window.LibraryUi;
+    const auth = window.LibraryAuth;
+    const summaryOutput = document.getElementById('policy-summary');
+    const feedbackOutput = document.getElementById('feedback-output');
+
+    function ensureAdminOnly() {
+      if (!auth.getRole() || !auth.canUseAdminPortal() || !auth.isAdmin()) {
+        window.location.href = '/login';
+        return false;
+      }
+      return true;
+    }
+
+    async function adminApi(url, options = {}) {
+      if (!ensureAdminOnly()) return null;
+      const response = await fetch(url, {
+        headers: {
+          'Content-Type': 'application/json',
+          ...auth.getAdminHeaders(),
+          ...(options.headers || {}),
+        },
+        credentials: 'same-origin',
+        ...options,
+      });
+      return response.json().catch(() => ({
+        error: { code: 'HTTP_ERROR', message: 'Server returned a non-JSON response', details: {} },
+      }));
+    }
+
+    function renderInitialState() {
+      ui.render(
+        summaryOutput,
+        `<div class="feedback-stack">${ui.empty({
+          title: '正在加载当前提醒策略',
+          description: '这里会展示到期提醒、逾期提醒和当前启用角色。',
+        })}</div>`
+      );
+      ui.render(
+        feedbackOutput,
+        `<div class="feedback-stack">${ui.empty({
+          title: '保存策略后的结果会显示在这里',
+          description: '保存成功后，这里会显示最新生效结果。',
+        })}</div>`
+      );
+    }
+
+    function renderPolicy(payload) {
+      if (payload?.error) {
+        ui.renderError(summaryOutput, payload, [{ href: '/admin/portal', label: '返回工作台' }]);
+        return;
+      }
+
+      const policy = payload?.data || {};
+      document.getElementById('due-days').value = (policy.due_days_before || []).join(',');
+      document.getElementById('overdue-days').value = (policy.overdue_days_after || []).join(',');
+
+      ui.render(
+        summaryOutput,
+        `
+          <div class="feedback-stack">
+            ${ui.banner({
+              tone: 'info',
+              title: policy.name || '当前默认策略',
+              description: '下面展示的是当前生效中的提醒规则。',
+            })}
+            ${ui.metricGrid([
+              { label: '到期前提醒', value: (policy.due_days_before || []).join(', ') || '无' },
+              { label: '逾期后提醒', value: (policy.overdue_days_after || []).join(', ') || '无' },
+              { label: '启用角色', value: ui.statusList(policy.enable_for_roles || []) || '无' },
+            ])}
+          </div>
+        `
+      );
+    }
+
+    function renderSaveFeedback(payload) {
+      if (payload?.error) {
+        ui.renderError(feedbackOutput, payload, [{ href: '/admin/reminder-policy-page', label: '重新检查输入' }]);
+        return;
+      }
+
+      const policy = payload?.data || {};
+      ui.render(
+        feedbackOutput,
+        `
+          <div class="feedback-stack">
+            ${ui.banner({
+              tone: 'success',
+              title: '提醒策略已更新',
+              description: `到期提醒已更新为 ${(policy.due_days_before || []).join(', ')}；逾期提醒已更新为 ${(policy.overdue_days_after || []).join(', ')}。`,
+            })}
+          </div>
+        `
+      );
+    }
+
+    function parseDays(id) {
+      return document
+        .getElementById(id)
+        .value
+        .split(',')
+        .map((value) => Number(value.trim()))
+        .filter((value) => !Number.isNaN(value));
+    }
+
+    async function loadPolicy() {
+      const payload = await adminApi('/admin/reminder-policy');
+      if (payload) {
+        renderPolicy(payload);
+      }
+    }
+
+    document.getElementById('reload-btn').onclick = loadPolicy;
+    document.getElementById('save-btn').onclick = async () => {
+      const payload = await adminApi('/admin/reminder-policy', {
+        method: 'PUT',
+        body: JSON.stringify({
+          due_days_before: parseDays('due-days'),
+          overdue_days_after: parseDays('overdue-days'),
+          enable_for_roles: ['MEMBER', 'ADMIN'],
+        }),
+      });
+      if (payload) {
+        renderSaveFeedback(payload);
+        if (!payload.error) {
+          loadPolicy();
+        }
+      }
+    };
+
+    auth.ready.then(() => {
+      if (ensureAdminOnly()) {
+        renderInitialState();
+        loadPolicy();
+      }
+    });
+  </script>
+  </body>
+</html>

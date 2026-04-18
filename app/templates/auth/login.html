@@ -1,0 +1,172 @@
+{% extends "base.html" %}
+
+{% block title %}统一登录{% endblock %}
+
+{% block page_class %}page--login{% endblock %}
+
+{% block content %}
+  <section class="scene scene--portal">
+    <div class="scene-search scene-search--actions">
+      <div class="scene-search__input">读者、馆员和管理员都在这里登录，系统会自动进入对应页面。</div>
+      <a class="scene-search__ghost" href="/portal">先看馆藏</a>
+      <a class="scene-search__button" href="/register">新用户注册</a>
+    </div>
+
+    <div class="scene-columns scene-columns--narrow">
+      <section class="glass-card glass-card--feature">
+        <div class="card-heading"><h2>账号登录</h2></div>
+        <p class="card-intro">登录后会根据账号身份自动进入读者服务或管理后台，不需要再分别找两个入口。</p>
+
+        <div class="form-grid">
+          <div class="field">
+            <label for="login-email">邮箱</label>
+            <input id="login-email" value="reader@example.com" />
+          </div>
+          <div class="field">
+            <label for="login-password">密码</label>
+            <input id="login-password" type="password" value="secret12" />
+          </div>
+        </div>
+
+        <div class="button-row">
+          <button id="login-btn">登录并进入系统</button>
+        </div>
+        <p id="login-message" class="status-message"></p>
+        <div id="login-result" class="panel-stack"></div>
+      </section>
+    </div>
+  </section>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    const ui = window.LibraryUi;
+    const authNameKey = 'library_auth_name';
+    const authRoleKey = 'library_auth_role';
+    const memberKey = 'library_member_token';
+    const adminKey = 'library_admin_token';
+    const adminRoleKey = 'library_admin_role';
+    const loginResult = document.getElementById('login-result');
+
+    function setMessage(text) {
+      document.getElementById('login-message').textContent = text || '';
+    }
+
+    function clearStoredSession() {
+      [authNameKey, authRoleKey, memberKey, adminKey, adminRoleKey].forEach((key) => localStorage.removeItem(key));
+    }
+
+    async function api(url, options = {}) {
+      const response = await fetch(url, {
+        headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+        ...options,
+      });
+      const data = await response.json().catch(() => ({
+        error: { code: 'HTTP_ERROR', message: 'Server returned a non-JSON response', details: {} },
+      }));
+      return { response, data };
+    }
+
+    async function fetchProfile(token) {
+      const response = await fetch('/me', { credentials: 'same-origin' });
+      return response.json().catch(() => null);
+    }
+
+    function saveSession(payload, profilePayload, email) {
+      const role = payload.data.role;
+      const token = payload.data.token;
+      const displayName =
+        profilePayload?.data?.profile?.full_name ||
+        profilePayload?.data?.email ||
+        email;
+
+      clearStoredSession();
+      localStorage.setItem(authNameKey, displayName);
+      localStorage.setItem(authRoleKey, role);
+
+      if (role === 'MEMBER' || role === 'ADMIN') {
+        localStorage.setItem(memberKey, token);
+      }
+      if (role === 'ADMIN' || role === 'LIBRARIAN') {
+        localStorage.setItem(adminKey, token);
+        localStorage.setItem(adminRoleKey, role);
+      }
+    }
+
+    function targetPathForRole(role) {
+      if (role === 'ADMIN' || role === 'LIBRARIAN') {
+        return '/admin/portal';
+      }
+      return '/member';
+    }
+
+    function renderLoginResult(payload, profilePayload) {
+      if (payload?.error) {
+        ui.renderError(loginResult, payload, [
+          { href: '/portal', label: '先看馆藏' },
+          { href: '/register', label: '注册账号' },
+        ]);
+        return;
+      }
+
+      const role = payload.data.role;
+      const membershipStatus = payload.data.membershipStatus || profilePayload?.data?.membership?.status || null;
+      const actions = [
+        { href: targetPathForRole(role), label: role === 'MEMBER' ? '进入读者服务' : '进入管理后台' },
+      ];
+
+      if (role === 'ADMIN') {
+        actions.push({ href: '/member', label: '进入读者服务' });
+      }
+      actions.push({ href: '/portal', label: '继续浏览馆藏' });
+
+      const descriptions = [];
+      if (role === 'MEMBER') {
+        descriptions.push('当前账号会进入读者服务，可查看借阅、预约和通知。');
+      }
+      if (role === 'ADMIN') {
+        descriptions.push('当前账号同时拥有管理后台和读者服务权限。');
+      }
+      if (role === 'LIBRARIAN') {
+        descriptions.push('当前账号会进入管理后台，可办理借还、罚款和馆藏管理。');
+      }
+      if (membershipStatus && role !== 'LIBRARIAN') {
+        descriptions.push(`当前会员状态：${ui.labelForStatus(membershipStatus)}。`);
+      }
+
+      ui.render(
+        loginResult,
+        `<div class="feedback-stack">${ui.banner({
+          tone: 'success',
+          title: '登录成功',
+          description: descriptions.join(' '),
+          actions,
+        })}</div>`
+      );
+    }
+
+    document.getElementById('login-btn').onclick = async () => {
+      setMessage('');
+      const email = document.getElementById('login-email').value.trim();
+      const password = document.getElementById('login-password').value;
+
+      const { data } = await api('/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ email, password }),
+      });
+
+      if (!data?.data?.token) {
+        setMessage('登录失败，请检查账号和密码。');
+        renderLoginResult(data, null);
+        return;
+      }
+
+      const profilePayload = await fetchProfile(data.data.token);
+      saveSession(data, profilePayload, email);
+      window.dispatchEvent(new Event('library-auth-changed'));
+      renderLoginResult(data, profilePayload);
+      setMessage('登录成功，正在进入对应页面。');
+      window.location.href = targetPathForRole(data.data.role);
+    };
+  </script>
+{% endblock %}

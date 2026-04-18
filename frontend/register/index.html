@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>读者注册</title>
+    <link rel="stylesheet" href="/static/assets/brand.css" />
+  </head>
+  <body class="">
+    <header class="site-header">
+      <div class="site-header__inner">
+        <a class="brandmark" href="/">
+          <span class="brandmark__icon" aria-hidden="true"></span>
+          <span class="brandmark__copy">
+            <strong>图书借阅与会员管理系统</strong>
+            <small>馆藏检索与读者服务</small>
+          </span>
+        </a>
+
+        <nav class="main-nav" aria-label="主导航">
+          <a class="" href="/">首页</a>
+          <a class="" href="/portal">馆藏检索</a>
+          <a class="" href="/member">读者服务</a>
+        </nav>
+
+        <div class="header-actions">
+          <div class="lang-switch" aria-label="Language switch">
+            <button class="lang-switch__button" data-lang-switch="zh-CN" type="button">中文</button>
+            <button class="lang-switch__button" data-lang-switch="en" type="button">EN</button>
+          </div>
+          <a id="access-entry" class="header-action" href="/login">登录/注册</a>
+          <div id="account-menu" class="account-menu account-menu--hidden">
+            <a id="member-entry" class="account-menu__item account-menu__item--hidden" href="/member">进入读者服务</a>
+            <a id="admin-entry" class="account-menu__item account-menu__item--hidden" href="/admin/portal">进入管理后台</a>
+            <button id="logout-entry" class="account-menu__item account-menu__button" type="button">退出登录</button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <div class="notice-bar">
+      <div class="notice-bar__inner">
+        <span id="notice-title" class="notice-bar__label" data-i18n-skip="true">公告</span>
+        <p id="notice-message" data-i18n-skip="true">正在加载最新公告…</p>
+      </div>
+    </div>
+
+    <main class="page page--register">
+      <section class="scene scene--portal">
+    <div class="scene-search scene-search--actions">
+      <div class="scene-search__input">注册通过审核后可进入读者服务。</div>
+      <a class="scene-search__ghost" href="/portal">返回馆藏检索</a>
+      <a class="scene-search__button" href="/login">已有账号，去登录</a>
+    </div>
+
+    <div class="scene-columns scene-columns--narrow">
+      <section class="glass-card glass-card--feature">
+        <div class="card-heading"><h2>读者注册</h2></div>
+        <div class="form-grid">
+          <div class="field"><label for="register-email">邮箱</label><input id="register-email" value="reader@example.com" /></div>
+          <div class="field"><label for="register-password">密码</label><input id="register-password" type="password" value="secret12" /></div>
+          <div class="field"><label for="register-name">姓名</label><input id="register-name" value="张三" /></div>
+          <div class="field"><label for="register-phone">手机号</label><input id="register-phone" value="13800138000" /></div>
+        </div>
+        <div class="button-row">
+          <button id="register-btn" type="button">注册账号</button>
+        </div>
+        <p id="register-message" class="status-message"></p>
+        <div id="register-result" class="panel-stack"></div>
+      </section>
+    </div>
+  </section>
+    </main>
+
+    <script>
+      window.LibraryConfig = {
+        apiBase: 'http://localhost:23123'
+      };
+    </script>
+    <script src="/static/assets/i18n_runtime.js"></script>
+    <script src="/static/assets/base_runtime.js"></script>
+    <script>
+      (async () => {
+        const i18n = window.LibraryI18n;
+        const titleNode = document.getElementById('notice-title');
+        const messageNode = document.getElementById('notice-message');
+        let announcementMode = 'system';
+        const defaultTitle = '开放时间提醒';
+        const defaultMessage = '欢迎使用图书馆服务。借书、还书和预约办理请按页面提示操作。';
+        function renderSystemNotice() {
+          titleNode.textContent = i18n.t(defaultTitle);
+          messageNode.textContent = i18n.t(defaultMessage);
+        }
+        if (!titleNode || !messageNode) return;
+        titleNode.textContent = i18n.t('公告');
+        messageNode.textContent = i18n.t('正在加载最新公告…');
+        try {
+          const response = await fetch('/announcements/current');
+          const payload = await response.json();
+          if (payload?.data?.message) {
+            const nextTitle = payload?.data?.title || defaultTitle;
+            const nextMessage = payload.data.message;
+            announcementMode = nextTitle === defaultTitle && nextMessage === defaultMessage ? 'system' : 'custom';
+            titleNode.textContent = announcementMode === 'system' ? i18n.t(defaultTitle) : nextTitle;
+            messageNode.textContent = announcementMode === 'system' ? i18n.t(defaultMessage) : nextMessage;
+          } else {
+            renderSystemNotice();
+          }
+        } catch {
+          renderSystemNotice();
+        }
+        window.addEventListener('library-lang-changed', () => {
+          if (announcementMode === 'system') {
+            renderSystemNotice();
+          }
+        });
+      })();
+    </script>
+    <script>
+    const ui = window.LibraryUi;
+    const registerResult = document.getElementById('register-result');
+    const fieldMap = {
+      email: { inputId: 'register-email', label: '邮箱' },
+      password: { inputId: 'register-password', label: '密码' },
+      fullName: { inputId: 'register-name', label: '姓名' },
+      phone: { inputId: 'register-phone', label: '手机号' },
+    };
+
+    function setMessage(text) {
+      document.getElementById('register-message').textContent = text || '';
+    }
+
+    function resetFieldErrors() {
+      document.querySelectorAll('.field--error').forEach((node) => node.classList.remove('field--error'));
+      document.querySelectorAll('[data-field-error]').forEach((node) => node.remove());
+    }
+
+    function markFieldError(fieldKey, message) {
+      const field = fieldMap[fieldKey];
+      if (!field) return;
+      const input = document.getElementById(field.inputId);
+      const wrapper = input?.closest('.field');
+      if (!input || !wrapper) return;
+      wrapper.classList.add('field--error');
+      const note = document.createElement('p');
+      note.className = 'field-note field-note--error';
+      note.dataset.fieldError = fieldKey;
+      note.textContent = message;
+      wrapper.append(note);
+    }
+
+    function renderIssues(title, issues) {
+      const validIssues = issues.filter((issue) => issue && issue.message);
+      if (!validIssues.length) {
+        registerResult.innerHTML = '';
+        return;
+      }
+
+      registerResult.innerHTML = `
+        <div class="feedback-stack">
+          ${ui.banner({
+            tone: 'warning',
+            title,
+            description: '把下面这些内容改对后，再提交一次。',
+          })}
+          ${ui.infoList(
+            validIssues.map((issue) => ({
+              label: issue.label || '提示',
+              value: issue.message,
+            }))
+          )}
+        </div>
+      `;
+    }
+
+    function collectValues() {
+      return {
+        email: document.getElementById('register-email').value.trim(),
+        password: document.getElementById('register-password').value,
+        fullName: document.getElementById('register-name').value.trim(),
+        phone: document.getElementById('register-phone').value.trim(),
+      };
+    }
+
+    function validateBeforeSubmit(values) {
+      const issues = [];
+
+      if (!values.email) {
+        issues.push({ field: 'email', label: '邮箱', message: '请先填写邮箱。' });
+      } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(values.email)) {
+        issues.push({ field: 'email', label: '邮箱', message: '邮箱格式不正确，请输入类似 reader@example.com 的地址。' });
+      }
+
+      if (!values.password) {
+        issues.push({ field: 'password', label: '密码', message: '请先填写密码。' });
+      } else if (values.password.length < 6) {
+        issues.push({ field: 'password', label: '密码', message: '密码至少需要 6 位。' });
+      }
+
+      if (!values.fullName) {
+        issues.push({ field: 'fullName', label: '姓名', message: '请先填写姓名。' });
+      }
+
+      return issues;
+    }
+
+    function translateServerIssues(payload) {
+      const error = payload?.error || {};
+      if (error.code === 'EMAIL_EXISTS') {
+        return [{ field: 'email', label: '邮箱', message: '这个邮箱已经注册过了，可以直接去登录。' }];
+      }
+
+      if (error.code === 'VALIDATION_ERROR' && Array.isArray(error.details)) {
+        return error.details.map((detail) => {
+          const field = Array.isArray(detail.loc) ? detail.loc[detail.loc.length - 1] : null;
+          if (field === 'email') {
+            return { field, label: '邮箱', message: '邮箱格式不正确，请输入带 @ 的完整邮箱地址。' };
+          }
+          if (field === 'password') {
+            return { field, label: '密码', message: '密码至少需要 6 位。' };
+          }
+          if (field === 'fullName') {
+            return { field, label: '姓名', message: '姓名不能为空。' };
+          }
+          if (field === 'phone') {
+            return { field, label: '手机号', message: '手机号格式不正确，请重新检查。' };
+          }
+          return { field: null, label: '注册信息', message: detail.msg || '输入内容不符合要求。' };
+        });
+      }
+
+      if (error.message) {
+        return [{ field: null, label: '注册信息', message: error.message }];
+      }
+
+      return [{ field: null, label: '注册信息', message: '提交没有成功，请稍后再试。' }];
+    }
+
+    document.getElementById('register-btn').onclick = async () => {
+      resetFieldErrors();
+      registerResult.innerHTML = '';
+      setMessage('');
+      const values = collectValues();
+      const clientIssues = validateBeforeSubmit(values);
+
+      if (clientIssues.length) {
+        clientIssues.forEach((issue) => issue.field && markFieldError(issue.field, issue.message));
+        renderIssues('这些内容还没填对', clientIssues);
+        setMessage('注册失败，请先修改标出的内容。');
+        return;
+      }
+
+      const response = await fetch('/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(values),
+      });
+      const data = await response.json().catch(() => ({ raw: 'non-json response' }));
+      if (data?.data?.userId) {
+        setMessage('注册成功，请等待审核后登录。');
+        registerResult.innerHTML = `
+          <div class="feedback-stack">
+            ${ui.banner({
+              tone: 'success',
+              title: '注册成功',
+              description: '账号已经提交，管理员审核通过后就可以登录并进入读者服务。',
+              actions: [{ href: '/login', label: '去登录页' }],
+            })}
+          </div>
+        `;
+        return;
+      }
+
+      const serverIssues = translateServerIssues(data);
+      serverIssues.forEach((issue) => issue.field && markFieldError(issue.field, issue.message));
+      renderIssues('注册没有提交成功', serverIssues);
+      setMessage('注册失败，请按提示修改后再试。');
+    };
+  </script>
+  </body>
+</html>

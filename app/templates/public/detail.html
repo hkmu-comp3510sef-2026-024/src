@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+
+{% block title %}图书详情{% endblock %}
+
+{% block page_class %}page--catalog-detail{% endblock %}
+
+{% block content %}
+  <section class="scene scene--portal">
+    <div class="scene-search scene-search--actions">
+      <input id="book-id" class="scene-search__field" placeholder="输入图书 ID" />
+      <a class="scene-search__ghost" href="/portal">返回馆藏检索</a>
+      <button id="detail-btn" class="scene-search__button" type="button">查看详情</button>
+    </div>
+
+    <div class="workspace-layout workspace-layout--equal">
+      <div class="workspace-main">
+        <section class="surface-card stack">
+          <div class="card-heading"><h2>图书详情</h2></div>
+          <div id="book-detail" class="list-shell"></div>
+        </section>
+      </div>
+
+      <aside class="workspace-side">
+        <section class="surface-card sticky-card stack">
+          <div class="card-heading"><h2>接下来做什么</h2></div>
+          <p class="aside-note">先确认这本书是否还可借，再决定要不要登录进入读者服务继续办理借阅或预约。</p>
+          <div class="result-actions">
+            <a class="soft-link" href="/login">登录 / 注册</a>
+            <a class="soft-link" href="/member">进入读者服务</a>
+            <a class="soft-link" href="/portal">继续找书</a>
+          </div>
+        </section>
+      </aside>
+    </div>
+  </section>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    const ui = window.LibraryUi;
+    const detail = document.getElementById('book-detail');
+
+    function renderInitialState() {
+      ui.render(
+        detail,
+        `<div class="feedback-stack">${ui.empty({
+          title: '先输入图书编号查看详情',
+          description: '如果你是从馆藏列表点进来的，系统会自动带上图书编号并直接展示详情。',
+        })}</div>`
+      );
+    }
+
+    function renderBookDetail(payload) {
+      const book = payload?.data;
+      if (!book) {
+        detail.innerHTML = `<div class="feedback-stack">${ui.empty({
+          title: '没有找到这本书',
+          description: '请确认图书编号是否正确，或者回到馆藏列表重新查找。',
+          actions: [{ href: '/portal', label: '回到馆藏检索' }],
+        })}</div>`;
+        return;
+      }
+
+      detail.innerHTML = `
+        <div class="feedback-stack">
+          ${ui.banner({
+            tone: 'info',
+            title: book.title,
+            description: `${book.author || '未知作者'} / ${book.category || '未分类'}`,
+          })}
+          <div class="metric-strip">
+            <div class="metric-chip">
+              <span class="metric-chip__label">图书编号</span>
+              <strong class="metric-chip__value">${ui.escapeHtml(book.id)}</strong>
+            </div>
+            <div class="metric-chip">
+              <span class="metric-chip__label">当前可借</span>
+              <strong class="metric-chip__value">${ui.escapeHtml(book.available ?? 0)}</strong>
+            </div>
+            <div class="metric-chip">
+              <span class="metric-chip__label">外借中</span>
+              <strong class="metric-chip__value">${ui.escapeHtml(book.on_loan ?? 0)}</strong>
+            </div>
+            <div class="metric-chip">
+              <span class="metric-chip__label">预约排队</span>
+              <strong class="metric-chip__value">${ui.escapeHtml(book.reservationQueueLength ?? 0)}</strong>
+            </div>
+          </div>
+            ${ui.card({
+              title: '馆藏情况',
+              badges: [ui.badge((book.available ?? 0) > 0 ? '可借' : '建议预约', (book.available ?? 0) > 0 ? 'success' : 'warning')],
+              description: book.description || '暂无简介',
+              details: ui.infoList([
+                { label: '出版年份', value: book.publish_year ?? '-' },
+                { label: '维修中', value: book.maintenance ?? 0 },
+                { label: '破损赔偿', value: book.damaged_compensation_effective_amount ?? book.damaged_compensation_amount ?? 0 },
+                { label: '遗失赔偿', value: book.lost_compensation_effective_amount ?? book.lost_compensation_amount ?? 0 },
+              ]),
+            })}
+          </div>
+        `;
+    }
+
+    function syncBookIdFromQuery() {
+      const queryBookId = new URLSearchParams(window.location.search).get('bookId');
+      if (queryBookId) {
+        document.getElementById('book-id').value = queryBookId;
+      }
+    }
+
+    async function loadDetail() {
+      const bookId = document.getElementById('book-id').value.trim();
+      if (!bookId) {
+        renderInitialState();
+        return;
+      }
+      const response = await fetch(`/books/${bookId}`);
+      renderBookDetail(await response.json().catch(() => ({ data: null })));
+    }
+
+    document.getElementById('detail-btn').onclick = loadDetail;
+
+    syncBookIdFromQuery();
+
+    if (document.getElementById('book-id').value.trim()) {
+      loadDetail();
+    } else {
+      renderInitialState();
+    }
+  </script>
+{% endblock %}

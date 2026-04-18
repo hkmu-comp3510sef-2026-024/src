@@ -1,0 +1,253 @@
+{% extends "base.html" %}
+
+{% block title %}我的借阅{% endblock %}
+
+{% block page_class %}page--member-loans{% endblock %}
+
+{% block content %}
+  <section class="scene scene--member">
+    <div class="scene-search scene-search--actions">
+      <div class="scene-search__input">这里集中展示你的借阅记录、到期时间和续借入口；如果要还书，请把书带到服务台办理。</div>
+      <a class="scene-search__ghost" href="/member">返回读者首页</a>
+      <button id="refresh-btn" class="scene-search__button" type="button">刷新借阅</button>
+    </div>
+
+    <div class="scene-columns">
+      <section class="glass-card">
+        <div class="card-heading"><h2>借阅概览</h2></div>
+        <div id="summary-output" class="panel-stack"></div>
+      </section>
+
+      <section class="glass-card glass-card--feature scene-card--span-2">
+        <div class="card-heading"><h2>借阅列表</h2></div>
+        <div id="loans-output" class="result-panel result-panel--rich"></div>
+      </section>
+
+      <section class="glass-card scene-card--span-3">
+        <div class="card-heading"><h2>操作反馈</h2></div>
+        <div id="feedback-output" class="result-panel result-panel--rich"></div>
+      </section>
+    </div>
+  </section>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    const ui = window.LibraryUi;
+    const auth = window.LibraryAuth;
+    const summaryOutput = document.getElementById('summary-output');
+    const loansOutput = document.getElementById('loans-output');
+    const feedbackOutput = document.getElementById('feedback-output');
+    let loansState = [];
+
+    function ensureReaderSession() {
+      if (!auth.getRole() || !auth.canUseMemberPortal()) {
+        window.location.href = '/login';
+        return false;
+      }
+      return true;
+    }
+
+    async function memberApi(url, options = {}) {
+      if (!ensureReaderSession()) return null;
+      const response = await fetch(url, {
+        headers: {
+          'Content-Type': 'application/json',
+          ...auth.getReaderHeaders(),
+          ...(options.headers || {}),
+        },
+        credentials: 'same-origin',
+        ...options,
+      });
+      return response.json().catch(() => ({
+        error: { code: 'HTTP_ERROR', message: 'Server returned a non-JSON response', details: {} },
+      }));
+    }
+
+    function renderInitialState() {
+      ui.render(
+        summaryOutput,
+        `<div class="feedback-stack">${ui.empty({
+          title: '正在准备你的借阅信息',
+          description: '页面会自动加载当前借阅记录，并把可续借的图书直接放出按钮。',
+        })}</div>`
+      );
+      ui.render(
+        loansOutput,
+        `<div class="feedback-stack">${ui.empty({
+          title: '借阅列表会显示在这里',
+          description: '如果当前没有借书，我会直接告诉你下一步去哪里找书。',
+        })}</div>`
+      );
+      ui.render(
+        feedbackOutput,
+        `<div class="feedback-stack">${ui.empty({
+          title: '续借结果会显示在这里',
+          description: '如果你要还书，请把书带到服务台，由馆员在“借书 / 还书”页面办理。',
+        })}</div>`
+      );
+    }
+
+    function renderSummary(profilePayload, loans) {
+      if (profilePayload?.error) {
+        ui.renderError(summaryOutput, profilePayload, [{ href: '/login', label: '重新登录' }]);
+        return;
+      }
+
+      const membership = profilePayload?.data?.membership || {};
+      const activeCount = loans.filter((loan) => loan.status === 'ACTIVE').length;
+      const overdueCount = loans.filter((loan) => loan.status === 'ACTIVE' && new Date(loan.due_at).getTime() < Date.now()).length;
+
+      ui.render(
+        summaryOutput,
+        `
+          <div class="feedback-stack">
+            ${ui.banner({
+              tone: overdueCount ? 'warning' : activeCount ? 'info' : 'success',
+              title: activeCount ? `当前还有 ${activeCount} 本书未归还` : '当前没有未归还图书',
+              description: overdueCount
+                ? `其中有 ${overdueCount} 本已经超过应还时间，建议优先处理。还书需要到服务台办理。`
+                : activeCount
+                  ? '可以在借阅列表里直接续借符合规则的图书；如果要还书，请把书带到服务台。'
+                  : '如果想借书，可以直接去图书列表浏览馆藏。',
+              actions: [{ href: '/member/catalog', label: '去图书列表' }],
+            })}
+            ${ui.metricGrid([
+              { label: '会员状态', value: membership.status ? ui.labelForStatus(membership.status) : '未知' },
+              { label: '当前未还', value: activeCount },
+              { label: '已逾期', value: overdueCount },
+            ])}
+          </div>
+        `
+      );
+    }
+
+    function renderLoans(payload) {
+      if (payload?.error) {
+        ui.renderError(loansOutput, payload, [{ href: '/member/catalog', label: '去图书列表' }]);
+        return;
+      }
+
+      const items = payload?.data || [];
+      loansState = items;
+
+      if (!items.length) {
+        ui.render(
+          loansOutput,
+          `<div class="feedback-stack">${ui.empty({
+            title: '你当前还没有借阅记录',
+            description: '可以先去图书列表看看感兴趣的书，找到后直接借阅。',
+            actions: [{ href: '/member/catalog', label: '去图书列表' }],
+          })}</div>`
+        );
+        return;
+      }
+
+      ui.render(
+        loansOutput,
+        `
+          <div class="feedback-stack">
+            ${items
+              .map((loan) => {
+                const isActive = loan.status === 'ACTIVE';
+                const isOverdue = isActive && new Date(loan.due_at).getTime() < Date.now();
+                return ui.card({
+                  title: `图书 #${loan.book_id}`,
+                  badges: [
+                    ui.statusBadge(loan.status),
+                    isOverdue ? ui.badge('已逾期', 'danger') : '',
+                    ui.badge(`已续借 ${loan.renew_count ?? 0} 次`, 'neutral'),
+                  ].filter(Boolean),
+                  meta: [`借阅编号 ${loan.id}`, `副本编号 ${loan.copy_id}`],
+                  details: ui.infoList([
+                    { label: '借出时间', value: ui.formatDateTime(loan.borrow_at) },
+                    { label: '应还时间', value: ui.formatDateTime(loan.due_at) },
+                    { label: '归还时间', value: loan.return_at ? ui.formatDateTime(loan.return_at) : '尚未归还' },
+                  ]),
+                  actions: [
+                    { href: `/member/detail?bookId=${loan.book_id}`, label: '查看这本书' },
+                  ],
+                });
+              })
+              .join('')}
+          </div>
+        `
+      );
+
+      loansOutput.querySelectorAll('.result-card').forEach((card, index) => {
+        const loan = items[index];
+        if (!loan || loan.status !== 'ACTIVE') return;
+        const actions = card.querySelector('.result-actions');
+        if (!actions) return;
+
+        const renewButton = document.createElement('button');
+        renewButton.type = 'button';
+        renewButton.className = 'secondary';
+        renewButton.textContent = '续借这本书';
+        renewButton.addEventListener('click', () => renewLoan(loan.id));
+
+        actions.prepend(renewButton);
+      });
+    }
+
+    function renderRenewResult(payload) {
+      if (payload?.error) {
+        ui.renderError(feedbackOutput, payload, [
+          { href: '/member/reservations-page', label: '查看预约情况' },
+          { href: '/member/notifications-page', label: '查看提醒消息' },
+        ]);
+        return;
+      }
+
+      const loan = payload?.data;
+      ui.render(
+        feedbackOutput,
+        `
+          <div class="feedback-stack">
+            ${ui.banner({
+              tone: 'success',
+              title: '续借成功',
+              description: `这本书已经续借成功，新的到期时间是 ${ui.formatDateTime(loan.due_at)}。`,
+              actions: [
+                { href: '/member/loans-page', label: '刷新借阅列表' },
+                { href: `/member/detail?bookId=${loan.book_id}`, label: '查看这本书' },
+              ],
+            })}
+            ${ui.metricGrid([
+              { label: '借阅编号', value: loan.id },
+              { label: '图书编号', value: loan.book_id },
+              { label: '累计续借', value: `${loan.renew_count ?? 0} 次` },
+            ])}
+          </div>
+        `
+      );
+    }
+
+    async function renewLoan(loanId) {
+      const payload = await memberApi(`/loans/${loanId}/renew`, { method: 'POST' });
+      if (payload) {
+        renderRenewResult(payload);
+        if (!payload.error) {
+          loadPage();
+        }
+      }
+    }
+
+    async function loadPage() {
+      const [profilePayload, loansPayload] = await Promise.all([memberApi('/me'), memberApi('/me/loans')]);
+      if (loansPayload) {
+        renderLoans(loansPayload);
+        renderSummary(profilePayload, loansPayload.error ? [] : (loansPayload.data || []));
+      }
+    }
+
+    document.getElementById('refresh-btn').onclick = loadPage;
+
+    auth.ready.then(() => {
+      if (ensureReaderSession()) {
+        renderInitialState();
+        loadPage();
+      }
+    });
+  </script>
+{% endblock %}

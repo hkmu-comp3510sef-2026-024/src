@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>首页</title>
+    <link rel="stylesheet" href="/static/assets/brand.css" />
+  </head>
+  <body class="">
+    <header class="site-header">
+      <div class="site-header__inner">
+        <a class="brandmark" href="/">
+          <span class="brandmark__icon" aria-hidden="true"></span>
+          <span class="brandmark__copy">
+            <strong>图书借阅与会员管理系统</strong>
+            <small>馆藏检索与读者服务</small>
+          </span>
+        </a>
+
+        <nav class="main-nav" aria-label="主导航">
+          <a class="" href="/">首页</a>
+          <a class="" href="/portal">馆藏检索</a>
+          <a class="" href="/member">读者服务</a>
+        </nav>
+
+        <div class="header-actions">
+          <div class="lang-switch" aria-label="Language switch">
+            <button class="lang-switch__button" data-lang-switch="zh-CN" type="button">中文</button>
+            <button class="lang-switch__button" data-lang-switch="en" type="button">EN</button>
+          </div>
+          <a id="access-entry" class="header-action" href="/login">登录/注册</a>
+          <div id="account-menu" class="account-menu account-menu--hidden">
+            <a id="member-entry" class="account-menu__item account-menu__item--hidden" href="/member">进入读者服务</a>
+            <a id="admin-entry" class="account-menu__item account-menu__item--hidden" href="/admin/portal">进入管理后台</a>
+            <button id="logout-entry" class="account-menu__item account-menu__button" type="button">退出登录</button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <div class="notice-bar">
+      <div class="notice-bar__inner">
+        <span id="notice-title" class="notice-bar__label" data-i18n-skip="true">公告</span>
+        <p id="notice-message" data-i18n-skip="true">正在加载最新公告…</p>
+      </div>
+    </div>
+
+    <main class="page page--home">
+      <section class="scene scene--portal">
+    <div class="scene-search scene-search--actions">
+      <input
+        id="home-keyword"
+        class="scene-search__field"
+        placeholder="先输入书名、作者、分类或编号"
+      />
+      <a id="home-primary-entry" class="scene-search__ghost" href="/login">登录 / 注册</a>
+      <button id="home-search-btn" class="scene-search__button" type="button">开始找书</button>
+    </div>
+
+    <div class="workspace-layout workspace-layout--wide">
+      <div class="workspace-main">
+        <section class="surface-card surface-card--hero stack">
+          <div class="toolbar-row toolbar-row--spread">
+            <div>
+              <div class="card-heading"><h2>今天先做什么</h2></div>
+              <p class="card-intro">从这里直接进入你现在最需要的入口，不用先猜应该点哪里。</p>
+            </div>
+          </div>
+          <div class="entity-list">
+            <article class="entity-card" data-href="/portal">
+              <div class="entity-card__header">
+                <div>
+                  <h3 class="entity-card__title">找书</h3>
+                  <p class="entity-card__subtitle">按书名、作者、分类和可借状态快速筛选</p>
+                </div>
+              </div>
+            </article>
+            <article class="entity-card" data-href="/member">
+              <div class="entity-card__header">
+                <div>
+                  <h3 class="entity-card__title">看我的借阅</h3>
+                  <p class="entity-card__subtitle">继续借、看预约、看通知都从这里进入</p>
+                </div>
+              </div>
+            </article>
+            <article class="entity-card" data-href="/admin/portal">
+              <div class="entity-card__header">
+                <div>
+                  <h3 class="entity-card__title">去后台处理业务</h3>
+                  <p class="entity-card__subtitle">审批会员、借还书、罚款、公告都在这里</p>
+                </div>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section class="surface-card stack">
+          <div class="toolbar-row toolbar-row--spread">
+            <div>
+              <div class="card-heading"><h2>现在可直接查看的书</h2></div>
+              <p class="card-intro">先看一批当前更适合直接下手的馆藏，想继续再进入完整检索页。</p>
+            </div>
+            <div class="toolbar-actions">
+              <a class="soft-link" href="/portal">打开完整馆藏检索</a>
+            </div>
+          </div>
+          <div id="home-books" class="list-shell"></div>
+        </section>
+      </div>
+
+      <aside class="workspace-side">
+        <section class="surface-card sticky-card stack">
+          <div class="card-heading"><h2>当前入口</h2></div>
+          <div id="home-account" class="list-shell"></div>
+        </section>
+      </aside>
+    </div>
+  </section>
+    </main>
+
+    <script>
+      window.LibraryConfig = {
+        apiBase: 'http://localhost:23123'
+      };
+    </script>
+    <script src="/static/assets/i18n_runtime.js"></script>
+    <script src="/static/assets/base_runtime.js"></script>
+    <script>
+      (async () => {
+        const i18n = window.LibraryI18n;
+        const titleNode = document.getElementById('notice-title');
+        const messageNode = document.getElementById('notice-message');
+        let announcementMode = 'system';
+        const defaultTitle = '开放时间提醒';
+        const defaultMessage = '欢迎使用图书馆服务。借书、还书和预约办理请按页面提示操作。';
+        function renderSystemNotice() {
+          titleNode.textContent = i18n.t(defaultTitle);
+          messageNode.textContent = i18n.t(defaultMessage);
+        }
+        if (!titleNode || !messageNode) return;
+        titleNode.textContent = i18n.t('公告');
+        messageNode.textContent = i18n.t('正在加载最新公告…');
+        try {
+          const response = await fetch('/announcements/current');
+          const payload = await response.json();
+          if (payload?.data?.message) {
+            const nextTitle = payload?.data?.title || defaultTitle;
+            const nextMessage = payload.data.message;
+            announcementMode = nextTitle === defaultTitle && nextMessage === defaultMessage ? 'system' : 'custom';
+            titleNode.textContent = announcementMode === 'system' ? i18n.t(defaultTitle) : nextTitle;
+            messageNode.textContent = announcementMode === 'system' ? i18n.t(defaultMessage) : nextMessage;
+          } else {
+            renderSystemNotice();
+          }
+        } catch {
+          renderSystemNotice();
+        }
+        window.addEventListener('library-lang-changed', () => {
+          if (announcementMode === 'system') {
+            renderSystemNotice();
+          }
+        });
+      })();
+    </script>
+    <script>
+    const ui = window.LibraryUi;
+    const auth = window.LibraryAuth;
+    const i18n = window.LibraryI18n;
+    const accountOutput = document.getElementById('home-account');
+    const booksOutput = document.getElementById('home-books');
+    const primaryEntry = document.getElementById('home-primary-entry');
+
+    function searchTarget() {
+      const keyword = document.getElementById('home-keyword').value.trim();
+      const query = new URLSearchParams();
+      if (keyword) {
+        query.set('keyword', keyword);
+      }
+      return `/portal${query.toString() ? `?${query.toString()}` : ''}`;
+    }
+
+    function renderAccountPanel() {
+      const role = auth.getRole();
+
+      if (!role) {
+        primaryEntry.textContent = i18n.t('登录 / 注册');
+        primaryEntry.href = '/login';
+        ui.render(
+          accountOutput,
+          `<div class="feedback-stack">${ui.banner({
+            tone: 'info',
+            title: '还没有登录',
+            description: '先找书也可以；如果要借阅、预约或处理后台业务，再进入对应入口。',
+            actions: [
+              { href: '/login', label: '去登录' },
+              { href: '/register', label: '注册账号' },
+            ],
+          })}</div>`
+        );
+        return;
+      }
+
+      if (role === 'ADMIN') {
+        primaryEntry.textContent = i18n.t('进入管理后台');
+        primaryEntry.href = '/admin/portal';
+        ui.render(
+          accountOutput,
+          `<div class="feedback-stack">${ui.banner({
+            tone: 'success',
+            title: '当前账号可直接处理后台业务',
+            description: '你也可以切到读者服务页，从普通用户视角检查前台体验。',
+            actions: [
+              { href: '/admin/portal', label: '进入管理后台' },
+              { href: '/member', label: '进入读者服务' },
+            ],
+          })}</div>`
+        );
+        return;
+      }
+
+      if (role === 'LIBRARIAN') {
+        primaryEntry.textContent = i18n.t('进入管理后台');
+        primaryEntry.href = '/admin/portal';
+        ui.render(
+          accountOutput,
+          `<div class="feedback-stack">${ui.banner({
+            tone: 'info',
+            title: '当前账号可直接处理借还书和馆藏业务',
+            description: '常用入口是借还书、罚款处理、图书和副本管理。',
+            actions: [
+              { href: '/admin/portal', label: '进入管理后台' },
+            ],
+          })}</div>`
+        );
+        return;
+      }
+
+      primaryEntry.textContent = i18n.t('进入读者服务');
+      primaryEntry.href = '/member';
+      ui.render(
+        accountOutput,
+        `<div class="feedback-stack">${ui.banner({
+          tone: 'success',
+          title: '当前账号可直接进入读者服务',
+          description: '去看借阅、预约、通知，或者继续找书都可以。',
+          actions: [
+            { href: '/member', label: '进入读者服务' },
+            { href: '/portal', label: '继续找书' },
+          ],
+        })}</div>`
+      );
+    }
+
+    function renderBooks(payload, availableOnly = false) {
+      const items = payload?.data?.items || [];
+      const total = payload?.data?.total || items.length;
+      if (!items.length) {
+        ui.render(
+          booksOutput,
+          `<div class="feedback-stack">${ui.empty({
+            title: '当前没有可展示的馆藏',
+            description: '可以直接进入馆藏检索页查看完整列表。',
+            actions: [{ href: '/portal', label: '打开馆藏检索' }],
+          })}</div>`
+        );
+        return;
+      }
+
+      ui.render(
+        booksOutput,
+        `
+          <div class="feedback-stack">
+            ${ui.banner({
+              tone: 'info',
+              title: `${availableOnly ? '当前可借馆藏' : '馆藏'}共 ${total} 本，这里先展示 ${items.length} 本`,
+              description: '这里是首页精选展示，不是全部结果。想继续找，直接进入完整馆藏检索。',
+            })}
+            <div class="entity-list">
+              ${items
+                .map(
+                  (book) => `
+                    <article class="entity-card">
+                      <div class="entity-card__header">
+                        <div>
+                          <h3 class="entity-card__title">${ui.escapeHtml(book.title)}</h3>
+                          <p class="entity-card__subtitle">${ui.escapeHtml(book.author || '未知作者')} / ${ui.escapeHtml(book.category || '未分类')}</p>
+                        </div>
+                        <div class="result-badges">
+                          ${ui.badge((book.availableCopies ?? 0) > 0 ? '现在可借' : '暂时借不到', (book.availableCopies ?? 0) > 0 ? 'success' : 'warning')}
+                        </div>
+                      </div>
+                      <p class="entity-card__summary">${ui.escapeHtml(book.description || '暂无简介')}</p>
+                      <div class="entity-card__footer">
+                        <a class="soft-link" href="/portal/detail?bookId=${encodeURIComponent(book.id)}">查看详情</a>
+                      </div>
+                    </article>
+                  `
+                )
+                .join('')}
+            </div>
+          </div>
+        `
+      );
+    }
+
+    async function loadBooks() {
+      let availableOnly = true;
+      let response = await fetch('/books?availableOnly=true&page=1&pageSize=6');
+      let payload = await response.json().catch(() => ({ data: { items: [] } }));
+
+      if (!(payload?.data?.items || []).length) {
+        availableOnly = false;
+        response = await fetch('/books?page=1&pageSize=6');
+        payload = await response.json().catch(() => ({ data: { items: [] } }));
+      }
+
+      renderBooks(payload, availableOnly);
+    }
+
+    document.getElementById('home-search-btn').onclick = () => {
+      window.location.href = searchTarget();
+    };
+
+    document.querySelectorAll('[data-href]').forEach((node) => {
+      node.addEventListener('click', () => {
+        window.location.href = node.getAttribute('data-href');
+      });
+    });
+
+    window.addEventListener('library-auth-changed', renderAccountPanel);
+    window.addEventListener('library-lang-changed', () => {
+      renderAccountPanel();
+      loadBooks();
+    });
+
+    renderAccountPanel();
+    loadBooks();
+  </script>
+  </body>
+</html>

@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>会员审核列表</title>
+    <link rel="stylesheet" href="/static/assets/brand.css" />
+  </head>
+  <body class="">
+    <header class="site-header">
+      <div class="site-header__inner">
+        <a class="brandmark" href="/">
+          <span class="brandmark__icon" aria-hidden="true"></span>
+          <span class="brandmark__copy">
+            <strong>图书借阅与会员管理系统</strong>
+            <small>馆藏检索与读者服务</small>
+          </span>
+        </a>
+
+        <nav class="main-nav" aria-label="主导航">
+          <a class="" href="/">首页</a>
+          <a class="" href="/portal">馆藏检索</a>
+          <a class="" href="/member">读者服务</a>
+        </nav>
+
+        <div class="header-actions">
+          <div class="lang-switch" aria-label="Language switch">
+            <button class="lang-switch__button" data-lang-switch="zh-CN" type="button">中文</button>
+            <button class="lang-switch__button" data-lang-switch="en" type="button">EN</button>
+          </div>
+          <a id="access-entry" class="header-action" href="/login">登录/注册</a>
+          <div id="account-menu" class="account-menu account-menu--hidden">
+            <a id="member-entry" class="account-menu__item account-menu__item--hidden" href="/member">进入读者服务</a>
+            <a id="admin-entry" class="account-menu__item account-menu__item--hidden" href="/admin/portal">进入管理后台</a>
+            <button id="logout-entry" class="account-menu__item account-menu__button" type="button">退出登录</button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <div class="notice-bar">
+      <div class="notice-bar__inner">
+        <span id="notice-title" class="notice-bar__label" data-i18n-skip="true">公告</span>
+        <p id="notice-message" data-i18n-skip="true">正在加载最新公告…</p>
+      </div>
+    </div>
+
+    <main class="page page--admin-members">
+      <section class="scene scene--admin">
+    <div class="scene-search scene-search--actions">
+      <div class="scene-search__input">先筛出要处理的会员，再选中一位，右侧直接完成审核、冻结、解冻或续期。</div>
+      <a class="scene-search__ghost" href="/admin/portal">返回管理工作台</a>
+      <button id="refresh-btn" class="scene-search__button" type="button">刷新列表</button>
+    </div>
+
+    <div class="scene-columns">
+      <section class="glass-card">
+        <div class="card-heading"><h2>筛选条件</h2></div>
+        <div class="inline-form">
+          <div class="field">
+            <label for="member-status-filter">会员状态</label>
+            <select id="member-status-filter">
+              <option value="PENDING">待审核</option>
+              <option value="">全部</option>
+              <option value="ACTIVE">正常</option>
+              <option value="FROZEN">已冻结</option>
+              <option value="EXPIRED">已过期</option>
+            </select>
+          </div>
+          <div class="button-row button-row--2">
+            <button id="pending-btn">待审核优先</button>
+            <button class="secondary" id="all-btn">查看全部</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="glass-card glass-card--feature scene-card--span-2">
+        <div class="card-heading"><h2>会员列表</h2></div>
+        <div id="members-output" class="result-panel result-panel--rich"></div>
+      </section>
+
+      <section class="glass-card">
+        <div class="card-heading"><h2>选中会员</h2></div>
+        <div id="detail-output" class="panel-stack"></div>
+      </section>
+
+      <section class="glass-card scene-card--span-2">
+        <div class="card-heading"><h2>操作反馈</h2></div>
+        <div id="feedback-output" class="result-panel result-panel--rich"></div>
+      </section>
+    </div>
+  </section>
+    </main>
+
+    <script>
+      window.LibraryConfig = {
+        apiBase: 'http://localhost:23123'
+      };
+    </script>
+    <script src="/static/assets/i18n_runtime.js"></script>
+    <script src="/static/assets/base_runtime.js"></script>
+    <script>
+      (async () => {
+        const i18n = window.LibraryI18n;
+        const titleNode = document.getElementById('notice-title');
+        const messageNode = document.getElementById('notice-message');
+        let announcementMode = 'system';
+        const defaultTitle = '开放时间提醒';
+        const defaultMessage = '欢迎使用图书馆服务。借书、还书和预约办理请按页面提示操作。';
+        function renderSystemNotice() {
+          titleNode.textContent = i18n.t(defaultTitle);
+          messageNode.textContent = i18n.t(defaultMessage);
+        }
+        if (!titleNode || !messageNode) return;
+        titleNode.textContent = i18n.t('公告');
+        messageNode.textContent = i18n.t('正在加载最新公告…');
+        try {
+          const response = await fetch('/announcements/current');
+          const payload = await response.json();
+          if (payload?.data?.message) {
+            const nextTitle = payload?.data?.title || defaultTitle;
+            const nextMessage = payload.data.message;
+            announcementMode = nextTitle === defaultTitle && nextMessage === defaultMessage ? 'system' : 'custom';
+            titleNode.textContent = announcementMode === 'system' ? i18n.t(defaultTitle) : nextTitle;
+            messageNode.textContent = announcementMode === 'system' ? i18n.t(defaultMessage) : nextMessage;
+          } else {
+            renderSystemNotice();
+          }
+        } catch {
+          renderSystemNotice();
+        }
+        window.addEventListener('library-lang-changed', () => {
+          if (announcementMode === 'system') {
+            renderSystemNotice();
+          }
+        });
+      })();
+    </script>
+    <script>
+    const ui = window.LibraryUi;
+    const auth = window.LibraryAuth;
+    const membersOutput = document.getElementById('members-output');
+    const detailOutput = document.getElementById('detail-output');
+    const feedbackOutput = document.getElementById('feedback-output');
+    let membersState = [];
+    let selectedMemberId = null;
+
+    function ensureAdminOnly() {
+      if (!auth.getRole() || !auth.canUseAdminPortal() || !auth.isAdmin()) {
+        window.location.href = '/login';
+        return false;
+      }
+      return true;
+    }
+
+    async function adminApi(url, options = {}) {
+      if (!ensureAdminOnly()) return null;
+      const response = await fetch(url, {
+        headers: {
+          'Content-Type': 'application/json',
+          ...auth.getAdminHeaders(),
+          ...(options.headers || {}),
+        },
+        credentials: 'same-origin',
+        ...options,
+      });
+      return response.json().catch(() => ({
+        error: { code: 'HTTP_ERROR', message: 'Server returned a non-JSON response', details: {} },
+      }));
+    }
+
+    function getSelectedMember() {
+      return membersState.find((item) => item.userId === selectedMemberId) || null;
+    }
+
+    function renderInitialState() {
+      ui.render(
+        membersOutput,
+        `<div class="feedback-stack">${ui.empty({
+          title: '会员列表会显示在这里',
+          description: '默认优先展示待审核会员；点一位会员后，右侧就能直接处理。',
+        })}</div>`
+      );
+      ui.render(
+        detailOutput,
+        `<div class="feedback-stack">${ui.empty({
+          title: '先在左侧选中一位会员',
+          description: '选中后才能执行审核、冻结、解冻和续期。',
+        })}</div>`
+      );
+      ui.render(
+        feedbackOutput,
+        `<div class="feedback-stack">${ui.empty({
+          title: '审核和状态变更结果会显示在这里',
+          description: '成功后列表会自动刷新，方便继续处理下一位。',
+        })}</div>`
+      );
+    }
+
+    function renderMemberList(payload) {
+      if (payload?.error) {
+        ui.renderError(membersOutput, payload, [{ href: '/admin/portal', label: '返回工作台' }]);
+        return;
+      }
+
+      membersState = payload?.data?.items || [];
+      if (!membersState.length) {
+        selectedMemberId = null;
+        ui.render(
+          membersOutput,
+          `<div class="feedback-stack">${ui.empty({
+            title: '当前筛选条件下没有会员',
+            description: '可以切换状态过滤器，或者稍后再回来查看。',
+          })}</div>`
+        );
+        renderMemberDetail();
+        return;
+      }
+
+      if (!membersState.some((item) => item.userId === selectedMemberId)) {
+        selectedMemberId = membersState[0].userId;
+      }
+
+      membersOutput.innerHTML = `
+        <div class="feedback-stack">
+          ${ui.banner({
+            tone: 'info',
+            title: `当前共有 ${membersState.length} 位会员`,
+            description: '点击任意会员卡片，即可在右侧查看资料并处理状态。',
+          })}
+          <div class="workspace-list">
+            ${membersState
+              .map((member) => `
+                <article class="workspace-card ${member.userId === selectedMemberId ? 'workspace-card--active' : ''}" data-member-id="${member.userId}">
+                  <div class="workspace-card__title">${ui.escapeHtml(member.profile?.full_name || member.email || `读者编号 ${member.userId}`)}</div>
+                  <div class="workspace-card__meta">
+                    <span>读者编号 ${member.userId}</span>
+                    <span>${ui.escapeHtml(member.email || '暂无邮箱')}</span>
+                  </div>
+                  <div class="result-badges">
+                    ${ui.statusBadge(member.membership?.status || 'PENDING')}
+                    ${ui.statusBadge(member.role || 'MEMBER')}
+                  </div>
+                </article>
+              `)
+              .join('')}
+          </div>
+        </div>
+      `;
+
+      membersOutput.querySelectorAll('[data-member-id]').forEach((node) => {
+        node.addEventListener('click', () => {
+          selectedMemberId = Number(node.getAttribute('data-member-id'));
+          renderMemberDetail();
+          renderMemberList({ data: { items: membersState } });
+        });
+      });
+
+      renderMemberDetail();
+    }
+
+    function renderMemberDetail() {
+      const member = getSelectedMember();
+      if (!member) {
+        ui.render(
+          detailOutput,
+          `<div class="feedback-stack">${ui.empty({
+            title: '先选中一位会员',
+            description: '如果列表为空，也就没有可处理的会员。',
+          })}</div>`
+        );
+        return;
+      }
+
+      ui.render(
+        detailOutput,
+        `
+          <div class="feedback-stack">
+            ${ui.card({
+              title: member.profile?.full_name || member.email || `读者编号 ${member.userId}`,
+              badges: [ui.statusBadge(member.membership?.status || 'PENDING'), ui.statusBadge(member.role || 'MEMBER')],
+              meta: [`读者编号 ${member.userId}`, member.email || ''],
+              details: ui.infoList([
+                { label: '手机号', value: member.profile?.phone || '未填写' },
+                { label: '冻结原因', value: member.membership?.frozen_reason || '无' },
+                { label: '有效期至', value: member.membership?.valid_to ? ui.formatDate(member.membership.valid_to) : '暂无' },
+              ]),
+            })}
+            <div class="inline-form">
+              <div class="field">
+                <label for="freeze-reason">冻结原因</label>
+                <input id="freeze-reason" placeholder="例如 欠费未处理 / 账号异常" />
+              </div>
+              <div class="field">
+                <label for="renew-days">续期天数</label>
+                <input id="renew-days" value="365" />
+              </div>
+              <div class="button-row button-row--2">
+                <button id="approve-btn" ${member.membership?.status === 'PENDING' ? '' : 'disabled'}>通过审核</button>
+                <button class="secondary" id="freeze-btn">冻结</button>
+                <button class="secondary" id="unfreeze-btn">解冻</button>
+                <button class="secondary" id="renew-btn">续期</button>
+              </div>
+            </div>
+          </div>
+        `
+      );
+
+      document.getElementById('approve-btn').onclick = () => runMemberAction(`/admin/members/${member.userId}/approve`, { method: 'POST' }, '会员已通过审核');
+      document.getElementById('freeze-btn').onclick = () =>
+        runMemberAction(
+          `/admin/members/${member.userId}/freeze`,
+          { method: 'POST', body: JSON.stringify({ reason: document.getElementById('freeze-reason').value || 'Manual freeze' }) },
+          '会员已冻结'
+        );
+      document.getElementById('unfreeze-btn').onclick = () => runMemberAction(`/admin/members/${member.userId}/unfreeze`, { method: 'POST' }, '会员已解冻');
+      document.getElementById('renew-btn').onclick = () =>
+        runMemberAction(
+          `/admin/members/${member.userId}/renew`,
+          { method: 'POST', body: JSON.stringify({ extendDays: Number(document.getElementById('renew-days').value || 365) }) },
+          '会员已续期'
+        );
+    }
+
+    function renderActionFeedback(payload, successTitle) {
+      if (payload?.error) {
+        ui.renderError(feedbackOutput, payload, [{ href: '/admin/members-page', label: '刷新会员列表' }]);
+        return;
+      }
+
+      ui.render(
+        feedbackOutput,
+        `
+          <div class="feedback-stack">
+            ${ui.banner({
+              tone: 'success',
+              title: successTitle,
+              description: '会员状态已更新，列表会自动同步最新结果。',
+              actions: [{ href: '/admin/members-page', label: '继续处理下一位' }],
+            })}
+          </div>
+        `
+      );
+    }
+
+    async function runMemberAction(url, options, successTitle) {
+      const payload = await adminApi(url, options);
+      if (payload) {
+        renderActionFeedback(payload, successTitle);
+        if (!payload.error) {
+          loadMembers();
+        }
+      }
+    }
+
+    async function loadMembers() {
+      const pageQuery = new URLSearchParams(window.location.search);
+      if (pageQuery.get('status') && !document.getElementById('member-status-filter').dataset.initialized) {
+        document.getElementById('member-status-filter').value = pageQuery.get('status');
+        document.getElementById('member-status-filter').dataset.initialized = '1';
+      }
+      const status = document.getElementById('member-status-filter').value;
+      const query = new URLSearchParams({ page: '1', pageSize: '20' });
+      if (status) query.set('status', status);
+      const payload = await adminApi(`/admin/members?${query.toString()}`);
+      if (payload) {
+        renderMemberList(payload);
+      }
+    }
+
+    document.getElementById('refresh-btn').onclick = loadMembers;
+    document.getElementById('pending-btn').onclick = () => {
+      document.getElementById('member-status-filter').value = 'PENDING';
+      loadMembers();
+    };
+    document.getElementById('all-btn').onclick = () => {
+      document.getElementById('member-status-filter').value = '';
+      loadMembers();
+    };
+    document.getElementById('member-status-filter').onchange = loadMembers;
+
+    auth.ready.then(() => {
+      if (ensureAdminOnly()) {
+        renderInitialState();
+        loadMembers();
+      }
+    });
+  </script>
+  </body>
+</html>

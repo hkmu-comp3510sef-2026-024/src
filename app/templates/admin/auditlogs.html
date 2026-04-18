@@ -1,0 +1,203 @@
+{% extends "base.html" %}
+
+{% block title %}审计日志查询{% endblock %}
+
+{% block page_class %}page--admin-auditlogs{% endblock %}
+
+{% block content %}
+  <section class="scene scene--admin">
+    <div class="scene-search scene-search--actions">
+      <div class="scene-search__input">按时间、操作者、操作类型和对象类型筛选后台记录。</div>
+      <a class="scene-search__ghost" href="/admin/portal">返回管理工作台</a>
+      <button id="search-btn" class="scene-search__button" type="button">查询日志</button>
+    </div>
+
+    <div class="scene-columns">
+      <section class="glass-card">
+        <div class="card-heading"><h2>筛选条件</h2></div>
+        <div class="inline-form">
+          <div class="field">
+            <label for="actor-id">操作者编号</label>
+            <input id="actor-id" placeholder="可留空" />
+          </div>
+          <div class="field">
+            <label for="log-action">操作类型</label>
+            <select id="log-action">
+              <option value="">全部操作</option>
+              <option value="MEMBER_APPROVE">会员审核通过</option>
+              <option value="MEMBER_FREEZE">会员冻结</option>
+              <option value="MEMBER_UNFREEZE">会员解冻</option>
+              <option value="MEMBER_RENEW">会员续期</option>
+              <option value="USER_ROLE_UPDATE">角色调整</option>
+              <option value="BOOK_CREATE">图书创建</option>
+              <option value="BOOK_UPDATE">图书更新</option>
+              <option value="COPY_CREATE">馆藏副本创建</option>
+              <option value="COPY_UPDATE">馆藏副本更新</option>
+              <option value="COPY_STATUS_CHANGE">馆藏副本状态变更</option>
+              <option value="LOAN_CHECKOUT">借书办理</option>
+              <option value="LOAN_CHECKIN">还书办理</option>
+              <option value="FINE_GENERATE">罚款生成</option>
+              <option value="FINE_UPDATE">罚款更新</option>
+              <option value="FINE_MARK_PAID">罚款处理</option>
+              <option value="ANNOUNCEMENT_CREATE">公告创建</option>
+              <option value="ANNOUNCEMENT_UPDATE">公告更新</option>
+              <option value="POLICY_UPDATE">提醒策略更新</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="target-type">对象类型</label>
+            <select id="target-type">
+              <option value="">全部类型</option>
+              <option value="member">会员</option>
+              <option value="user">账号</option>
+              <option value="book">图书</option>
+              <option value="copy">馆藏副本</option>
+              <option value="loan">借阅记录</option>
+              <option value="fine">罚款记录</option>
+              <option value="announcement">公告</option>
+              <option value="reminder_policy">提醒策略</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="date-from">开始时间</label>
+            <input id="date-from" placeholder="例如 2026-04-15T09:00:00" />
+          </div>
+          <div class="field">
+            <label for="date-to">结束时间</label>
+            <input id="date-to" placeholder="例如 2026-04-15T18:00:00" />
+          </div>
+        </div>
+      </section>
+
+      <section class="glass-card glass-card--feature scene-card--span-2">
+        <div class="card-heading"><h2>日志结果</h2></div>
+        <div id="logs-output" class="result-panel result-panel--rich"></div>
+      </section>
+    </div>
+  </section>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    const ui = window.LibraryUi;
+    const auth = window.LibraryAuth;
+    const i18n = window.LibraryI18n;
+    const logsOutput = document.getElementById('logs-output');
+
+    function ensureAdminOnly() {
+      if (!auth.getRole() || !auth.canUseAdminPortal() || !auth.isAdmin()) {
+        window.location.href = '/login';
+        return false;
+      }
+      return true;
+    }
+
+    async function adminApi(url) {
+      if (!ensureAdminOnly()) return null;
+      const response = await fetch(url, {
+        headers: { ...auth.getAdminHeaders() },
+        credentials: 'same-origin',
+      });
+      return response.json().catch(() => ({
+        error: { code: 'HTTP_ERROR', message: 'Server returned a non-JSON response', details: {} },
+      }));
+    }
+
+    function prettyJson(value) {
+      if (!value || (typeof value === 'object' && !Object.keys(value).length)) {
+        return `<div class="field-note">${i18n.t('暂无变更内容')}</div>`;
+      }
+      return `<pre class="code-block">${ui.escapeHtml(JSON.stringify(i18n.translateAuditValue(value), null, 2))}</pre>`;
+    }
+
+    function renderInitialState() {
+      ui.render(
+        logsOutput,
+        `<div class="feedback-stack">${ui.empty({
+          title: '查询结果会显示在这里',
+          description: '日志会按时间顺序展示，适合追踪后台关键操作和数据变更。',
+        })}</div>`
+      );
+    }
+
+    function renderLogs(payload) {
+      if (payload?.error) {
+        ui.renderError(logsOutput, payload, [{ href: '/admin/portal', label: '返回工作台' }]);
+        return;
+      }
+
+      const items = payload?.data?.items || [];
+      if (!items.length) {
+        ui.render(
+          logsOutput,
+          `<div class="feedback-stack">${ui.empty({
+            title: '当前条件下没有日志记录',
+            description: '可以放宽筛选条件，或者调整时间范围后再试。',
+          })}</div>`
+        );
+        return;
+      }
+
+      ui.render(
+        logsOutput,
+        `
+          <div class="feedback-stack">
+            ${ui.banner({
+              tone: 'info',
+              title: `查询到 ${items.length} 条日志`,
+              description: '每条记录都包含操作者、操作类型、对象和变更内容。',
+            })}
+            ${items
+              .map((item) => `
+                <article class="result-card">
+                  <div class="result-card__header">
+                    <div>
+                      <h3 class="result-card__title">${ui.escapeHtml(i18n.labelForAction(item.action))}</h3>
+                      <div class="result-meta">
+                        <span>${ui.escapeHtml(i18n.t('操作者编号 {id}', { id: ui.safeText(item.actor_user_id, '-') }))}</span>
+                        <span>${ui.escapeHtml(i18n.t('{targetType}编号 {targetId}', { targetType: i18n.labelForTargetType(item.target_type), targetId: ui.safeText(item.target_id, '-') }))}</span>
+                        <span>${ui.formatDateTime(item.created_at)}</span>
+                      </div>
+                    </div>
+                    <div class="result-badges">${ui.badge(i18n.labelForTargetType(item.target_type), 'info')}</div>
+                  </div>
+                  <div class="info-list">
+                    <div class="info-list__row">
+                      <span class="info-list__label">变更前</span>
+                      <div class="info-list__value">${prettyJson(item.before_json)}</div>
+                    </div>
+                    <div class="info-list__row">
+                      <span class="info-list__label">变更后</span>
+                      <div class="info-list__value">${prettyJson(item.after_json)}</div>
+                    </div>
+                  </div>
+                </article>
+              `)
+              .join('')}
+          </div>
+        `
+      );
+    }
+
+    async function loadLogs() {
+      const query = new URLSearchParams({ page: '1', pageSize: '20' });
+      if (document.getElementById('actor-id').value.trim()) query.set('actor', document.getElementById('actor-id').value.trim());
+      if (document.getElementById('log-action').value.trim()) query.set('action', document.getElementById('log-action').value.trim());
+      if (document.getElementById('target-type').value.trim()) query.set('targetType', document.getElementById('target-type').value.trim());
+      if (document.getElementById('date-from').value.trim()) query.set('dateFrom', document.getElementById('date-from').value.trim());
+      if (document.getElementById('date-to').value.trim()) query.set('dateTo', document.getElementById('date-to').value.trim());
+      const payload = await adminApi(`/admin/auditlogs?${query.toString()}`);
+      if (payload) {
+        renderLogs(payload);
+      }
+    }
+
+    document.getElementById('search-btn').onclick = loadLogs;
+
+    auth.ready.then(() => {
+      if (ensureAdminOnly()) {
+        renderInitialState();
+      }
+    });
+  </script>
+{% endblock %}

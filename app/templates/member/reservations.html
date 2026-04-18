@@ -1,0 +1,293 @@
+{% extends "base.html" %}
+
+{% block title %}我的预约{% endblock %}
+
+{% block page_class %}page--member-reservations{% endblock %}
+
+{% block content %}
+  <section class="scene scene--member">
+    <div class="scene-search scene-search--actions">
+      <div class="scene-search__input">这里集中展示预约队列、READY 取书倒计时和取消入口，不再需要你手动输入预约编号才能操作。</div>
+      <a class="scene-search__ghost" href="/member">返回读者首页</a>
+      <button id="refresh-btn" class="scene-search__button" type="button">刷新预约</button>
+    </div>
+
+    <div class="scene-columns">
+      <section class="glass-card">
+        <div class="card-heading"><h2>快速预约</h2></div>
+        <div class="inline-form">
+          <div class="field">
+            <label for="reserve-book-id">图书编号</label>
+            <input id="reserve-book-id" placeholder="例如 1" />
+          </div>
+          <div class="button-row button-row--2">
+            <button id="reserve-btn">提交预约</button>
+            <a class="soft-link" href="/member/catalog">去图书列表找书</a>
+          </div>
+          <p class="field-note">如果你已经在图书详情页，就直接在那里点“加入预约”会更顺手。</p>
+        </div>
+      </section>
+
+      <section class="glass-card glass-card--feature scene-card--span-2">
+        <div class="card-heading"><h2>预约列表</h2></div>
+        <div id="reservations-output" class="result-panel result-panel--rich"></div>
+      </section>
+
+      <section class="glass-card scene-card--span-3">
+        <div class="card-heading"><h2>操作反馈</h2></div>
+        <div id="feedback-output" class="result-panel result-panel--rich"></div>
+      </section>
+    </div>
+  </section>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    const ui = window.LibraryUi;
+    const auth = window.LibraryAuth;
+    const reservationsOutput = document.getElementById('reservations-output');
+    const feedbackOutput = document.getElementById('feedback-output');
+    let countdownTimer = null;
+    let reservationsState = [];
+
+    function ensureReaderSession() {
+      if (!auth.getRole() || !auth.canUseMemberPortal()) {
+        window.location.href = '/login';
+        return false;
+      }
+      return true;
+    }
+
+    async function memberApi(url, options = {}) {
+      if (!ensureReaderSession()) return null;
+      const response = await fetch(url, {
+        headers: {
+          'Content-Type': 'application/json',
+          ...auth.getReaderHeaders(),
+          ...(options.headers || {}),
+        },
+        credentials: 'same-origin',
+        ...options,
+      });
+      return response.json().catch(() => ({
+        error: { code: 'HTTP_ERROR', message: 'Server returned a non-JSON response', details: {} },
+      }));
+    }
+
+    function formatCountdown(value) {
+      const remaining = new Date(value).getTime() - Date.now();
+      if (remaining <= 0) {
+        return '已到截止时间';
+      }
+      const totalSeconds = Math.floor(remaining / 1000);
+      const hours = Math.floor(totalSeconds / 3600);
+      const minutes = Math.floor((totalSeconds % 3600) / 60);
+      return `${hours} 小时 ${minutes} 分钟`;
+    }
+
+    function mountCountdown() {
+      if (countdownTimer) {
+        clearInterval(countdownTimer);
+      }
+      countdownTimer = setInterval(() => {
+        document.querySelectorAll('[data-deadline]').forEach((node) => {
+          node.textContent = formatCountdown(node.getAttribute('data-deadline'));
+        });
+      }, 60000);
+      document.querySelectorAll('[data-deadline]').forEach((node) => {
+        node.textContent = formatCountdown(node.getAttribute('data-deadline'));
+      });
+    }
+
+    function renderInitialState() {
+      ui.render(
+        reservationsOutput,
+        `<div class="feedback-stack">${ui.empty({
+          title: '预约列表会显示在这里',
+          description: '进入页面后会自动加载你的预约记录，并对 READY 状态展示倒计时。',
+        })}</div>`
+      );
+      ui.render(
+        feedbackOutput,
+        `<div class="feedback-stack">${ui.empty({
+          title: '预约结果会显示在这里',
+          description: '无论是提交预约还是取消预约，我都会告诉你目前排到哪里，或者什么时候去取书。',
+        })}</div>`
+      );
+    }
+
+    function renderReservations(payload) {
+      if (payload?.error) {
+        ui.renderError(reservationsOutput, payload, [{ href: '/member/notifications-page', label: '查看通知中心' }]);
+        return;
+      }
+
+      const items = payload?.data || [];
+      reservationsState = items;
+
+      if (!items.length) {
+        ui.render(
+          reservationsOutput,
+          `<div class="feedback-stack">${ui.empty({
+            title: '你当前还没有预约记录',
+            description: '如果有书暂时借不到，可以在图书详情页或这里直接提交预约。',
+            actions: [{ href: '/member/catalog', label: '去图书列表' }],
+          })}</div>`
+        );
+        return;
+      }
+
+      const readyCount = items.filter((item) => item.status === 'READY_FOR_PICKUP').length;
+      ui.render(
+        reservationsOutput,
+        `
+          <div class="feedback-stack">
+            ${ui.banner({
+              tone: readyCount ? 'success' : 'info',
+              title: `共有 ${items.length} 条预约记录`,
+              description: readyCount ? `其中有 ${readyCount} 本已经可以取书，记得在倒计时结束前完成借阅。` : '当前预约都还在排队或已处理完成。',
+              actions: [{ href: '/member/notifications-page', label: '查看取书提醒' }],
+            })}
+            ${items
+              .map((reservation) => {
+                const actions = [
+                  { href: `/member/detail?bookId=${reservation.book_id}`, label: '查看这本书' },
+                ];
+                return ui.card({
+                  title: `图书编号 ${reservation.book_id}`,
+                  badges: [ui.statusBadge(reservation.status)],
+                  meta: [`预约编号 ${reservation.id}`],
+                  details: `
+                    ${ui.infoList([
+                      { label: '排队序号', value: reservation.queue_no ?? '暂无' },
+                      { label: '取书截止', value: reservation.pickup_deadline_at ? ui.formatDateTime(reservation.pickup_deadline_at) : '待通知' },
+                    ])}
+                    ${reservation.status === 'READY_FOR_PICKUP' && reservation.pickup_deadline_at ? `<div class="countdown-pill" data-deadline="${reservation.pickup_deadline_at}"></div>` : ''}
+                  `,
+                  actions,
+                });
+              })
+              .join('')}
+          </div>
+        `
+      );
+
+      reservationsOutput.querySelectorAll('.result-card').forEach((card, index) => {
+        const reservation = items[index];
+        if (!reservation || !['QUEUED', 'READY_FOR_PICKUP'].includes(reservation.status)) return;
+        const actions = card.querySelector('.result-actions');
+        if (!actions) return;
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'secondary';
+        button.textContent = '取消预约';
+        button.addEventListener('click', () => cancelReservation(reservation.id));
+        actions.prepend(button);
+      });
+
+      mountCountdown();
+    }
+
+    function renderReservationCreated(payload) {
+      if (payload?.error) {
+        ui.renderError(feedbackOutput, payload, [{ href: '/member/catalog', label: '回到图书列表' }]);
+        return;
+      }
+
+      const reservation = payload?.data;
+      const ready = reservation.status === 'READY_FOR_PICKUP';
+      ui.render(
+        feedbackOutput,
+        `
+          <div class="feedback-stack">
+            ${ui.banner({
+              tone: ready ? 'success' : 'warning',
+              title: ready ? '预约成功，图书已可取' : '预约提交成功',
+              description: ready
+                ? `图书已经为你保留，请在 ${ui.formatDateTime(reservation.pickup_deadline_at)} 前完成借阅。`
+                : `你已经进入预约队列，目前排队序号为 ${reservation.queue_no ?? '暂无'}。`,
+              actions: [
+                { href: '/member/notifications-page', label: '查看通知中心' },
+                { href: `/member/detail?bookId=${reservation.book_id}`, label: '查看这本书' },
+              ],
+            })}
+          </div>
+        `
+      );
+    }
+
+    function renderReservationCancelled(payload) {
+      if (payload?.error) {
+        ui.renderError(feedbackOutput, payload, [{ href: '/member/reservations-page', label: '刷新预约列表' }]);
+        return;
+      }
+
+      const reservation = payload?.data;
+      ui.render(
+        feedbackOutput,
+        `
+          <div class="feedback-stack">
+            ${ui.banner({
+              tone: 'success',
+              title: '预约已取消',
+              description: `图书编号 ${reservation.book_id} 的预约已经从你的待处理列表中移除。`,
+              actions: [{ href: '/member/reservations-page', label: '刷新预约列表' }],
+            })}
+          </div>
+        `
+      );
+    }
+
+    async function cancelReservation(id) {
+      const payload = await memberApi(`/reservations/${id}`, { method: 'DELETE' });
+      if (payload) {
+        renderReservationCancelled(payload);
+        if (!payload.error) {
+          loadPage();
+        }
+      }
+    }
+
+    async function loadPage() {
+      const payload = await memberApi('/me/reservations');
+      if (payload) {
+        renderReservations(payload);
+      }
+    }
+
+    document.getElementById('refresh-btn').onclick = loadPage;
+
+    document.getElementById('reserve-btn').onclick = async () => {
+      const bookId = document.getElementById('reserve-book-id').value.trim();
+      if (!bookId) {
+        ui.render(
+          feedbackOutput,
+          `<div class="feedback-stack">${ui.banner({
+            tone: 'warning',
+            title: '请先输入图书编号',
+            description: '输入图书编号后，我会帮你提交预约。',
+          })}</div>`
+        );
+        return;
+      }
+      const payload = await memberApi('/reservations', {
+        method: 'POST',
+        body: JSON.stringify({ bookId: Number(bookId) }),
+      });
+      if (payload) {
+        renderReservationCreated(payload);
+        if (!payload.error) {
+          document.getElementById('reserve-book-id').value = '';
+          loadPage();
+        }
+      }
+    };
+
+    auth.ready.then(() => {
+      if (ensureReaderSession()) {
+        renderInitialState();
+        loadPage();
+      }
+    });
+  </script>
+{% endblock %}

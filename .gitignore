@@ -1,19 +1,22 @@
-# Python-generated files
+# Python
 __pycache__/
 *.py[oc]
-build/
-dist/
-wheels/
 *.egg-info
-runtime/
-wheelhouse/
 *.log
 *.zip
-*.html
-node_modules/
 
 # Virtual environments
-.venv
+.venv/
 
-# Tooling / local workspace
+# Tooling
 .claude/
+.pytest_cache/
+
+# Frontend build outputs (generated)
+frontend/dist/
+frontend/build/
+frontend/node_modules/
+
+# Generated static HTML (regenerate with: uv run python generate_frontend.py)
+# DO NOT ignore these - they are the actual frontend pages served by FastAPI
+# If you want to regenerate: uv run python generate_frontend.py

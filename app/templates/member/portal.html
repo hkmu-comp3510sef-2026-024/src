@@ -1,0 +1,268 @@
+{% extends "base.html" %}
+
+{% block title %}读者服务{% endblock %}
+
+{% block page_class %}page--member{% endblock %}
+
+{% block content %}
+  <section class="scene scene--member">
+    <div class="scene-search scene-search--actions">
+      <div class="scene-search__input">读者首页只围绕三件事展开：我的账号状态、我要找什么书、我接下来要去处理哪类记录。</div>
+      <a class="scene-search__ghost" href="/portal">返回馆藏检索</a>
+      <button id="recommend-btn" class="scene-search__button" type="button">查看推荐</button>
+    </div>
+
+    <div class="workspace-layout workspace-layout--wide">
+      <div class="workspace-main">
+        <section class="surface-card stack">
+          <div class="toolbar-row toolbar-row--spread">
+            <div>
+              <div class="card-heading"><h2>搜索与推荐</h2></div>
+              <p class="card-intro">从这里直接搜馆藏；如果暂时没有目标，就让系统先给你推荐几本。</p>
+            </div>
+            <div class="toolbar-actions">
+              <a class="soft-link" href="/member/catalog">打开完整书目页</a>
+            </div>
+          </div>
+          <div class="filter-grid">
+            <div class="field">
+              <label for="keyword">关键词</label>
+              <input id="keyword" placeholder="输入书名、作者或分类关键词" />
+            </div>
+          </div>
+          <div class="button-row">
+            <button id="search-btn">查询馆藏</button>
+          </div>
+          <div id="result-output" class="list-shell"></div>
+        </section>
+
+        <section class="surface-card stack">
+          <div class="card-heading"><h2>常用入口</h2></div>
+          <div class="entity-list">
+            <article class="entity-card" data-href="/member/loans-page">
+              <div class="entity-card__header">
+                <div>
+                  <h3 class="entity-card__title">我的借阅</h3>
+                  <p class="entity-card__subtitle">查看到期时间，直接续借符合规则的图书</p>
+                </div>
+              </div>
+            </article>
+            <article class="entity-card" data-href="/member/reservations-page">
+              <div class="entity-card__header">
+                <div>
+                  <h3 class="entity-card__title">我的预约</h3>
+                  <p class="entity-card__subtitle">看排队位置、READY 倒计时和取消入口</p>
+                </div>
+              </div>
+            </article>
+            <article class="entity-card" data-href="/member/notifications-page">
+              <div class="entity-card__header">
+                <div>
+                  <h3 class="entity-card__title">通知中心</h3>
+                  <p class="entity-card__subtitle">优先处理到期提醒、逾期提醒和可取书提醒</p>
+                </div>
+              </div>
+            </article>
+          </div>
+        </section>
+      </div>
+
+      <aside class="workspace-side">
+        <section class="surface-card sticky-card stack">
+          <div class="card-heading"><h2>账号状态</h2></div>
+          <div id="member-summary" class="list-shell"></div>
+        </section>
+      </aside>
+    </div>
+  </section>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    const ui = window.LibraryUi;
+    const auth = window.LibraryAuth;
+    const summary = document.getElementById('member-summary');
+    const output = document.getElementById('result-output');
+
+    function ensureReaderSession() {
+      if (!auth.getRole() || !auth.canUseMemberPortal()) {
+        window.location.href = '/login';
+        return false;
+      }
+      return true;
+    }
+
+    async function memberApi(url, options = {}) {
+      if (!ensureReaderSession()) return null;
+      const response = await fetch(url, {
+        headers: {
+          'Content-Type': 'application/json',
+          ...auth.getReaderHeaders(),
+          ...(options.headers || {}),
+        },
+        credentials: 'same-origin',
+        ...options,
+      });
+      return response.json().catch(() => ({
+        error: { code: 'HTTP_ERROR', message: 'Server returned a non-JSON response', details: {} },
+      }));
+    }
+
+    function renderSummary(profilePayload) {
+      if (profilePayload?.error) {
+        ui.renderError(summary, profilePayload, [{ href: '/login', label: '重新登录' }]);
+        return;
+      }
+
+      const data = profilePayload.data || {};
+      const profile = data.profile || {};
+      const membership = data.membership || {};
+      const role = data.role || 'MEMBER';
+
+      ui.render(
+        summary,
+        `
+          <div class="feedback-stack">
+            ${ui.banner({
+              tone: membership.status === 'ACTIVE' ? 'success' : membership.status === 'PENDING' ? 'warning' : 'danger',
+              title: profile.full_name || data.email || '当前账号',
+              description: membership.status === 'ACTIVE'
+                ? '账号状态正常，可以继续借阅、续借和预约。'
+                : membership.status === 'PENDING'
+                  ? '账号还在审核中，目前可浏览馆藏，但不能借阅和预约。'
+                  : membership.status === 'FROZEN'
+                    ? '账号已被冻结，请联系管理员处理。'
+                    : '账号有效期已结束，需要续期后再借阅。',
+              actions: [
+                { href: '/member/loans-page', label: '查看我的借阅' },
+                { href: '/member/notifications-page', label: '查看通知中心' },
+              ],
+            })}
+            ${ui.metricGrid([
+              { label: '角色', value: ui.labelForStatus(role) },
+              { label: '会员状态', value: membership.status ? ui.labelForStatus(membership.status) : '未知' },
+              { label: '有效期至', value: membership.valid_to ? ui.formatDate(membership.valid_to) : '暂无' },
+            ])}
+          </div>
+        `
+      );
+    }
+
+    function renderInitialState() {
+      ui.render(
+        output,
+        `<div class="feedback-stack">${ui.empty({
+          title: '先搜一本书，或者直接看推荐',
+          description: '输入书名、作者、分类关键词来查馆藏；如果暂时没有目标，就点右上角的“查看推荐”。',
+          actions: [{ href: '/member/catalog', label: '打开完整书目页' }],
+        })}</div>`
+      );
+    }
+
+    function renderBookList(items, description, { recommended = false } = {}) {
+      return `
+        <div class="feedback-stack">
+          ${ui.banner({
+            tone: recommended ? 'success' : 'info',
+            title: recommended ? `推荐你看看这 ${items.length} 本书` : `当前找到 ${items.length} 本图书`,
+            description,
+          })}
+          <div class="entity-list">
+            ${items
+              .map((book) => {
+                const targetId = book.bookId ?? book.id;
+                return `
+                  <article class="entity-card">
+                    <div class="entity-card__header">
+                      <div>
+                        <h3 class="entity-card__title">${ui.escapeHtml(book.title)}</h3>
+                        <p class="entity-card__subtitle">${ui.escapeHtml(book.author || '未知作者')}${book.category ? ` / ${ui.escapeHtml(book.category)}` : ''}</p>
+                      </div>
+                      <div class="result-badges">
+                        ${recommended
+                          ? ui.badge('个性化推荐', 'success')
+                          : ui.badge(`可借 ${book.availableCopies ?? 0} 本`, (book.availableCopies ?? 0) > 0 ? 'success' : 'warning')}
+                      </div>
+                    </div>
+                    <p class="entity-card__summary">${ui.escapeHtml(recommended ? (book.reason || '根据你的借阅习惯生成推荐。') : (book.description || '暂无简介'))}</p>
+                    <div class="entity-card__footer">
+                      <a class="soft-link" href="/member/detail?bookId=${encodeURIComponent(targetId)}">查看详情</a>
+                    </div>
+                  </article>
+                `;
+              })
+              .join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    function renderSearch(payload, keyword) {
+      if (payload?.error) {
+        ui.renderError(output, payload, [{ href: '/member/catalog', label: '去完整书目页' }]);
+        return;
+      }
+      const items = payload?.data?.items || [];
+      if (!items.length) {
+        ui.render(
+          output,
+          `<div class="feedback-stack">${ui.empty({
+            title: '没有找到符合条件的图书',
+            description: keyword ? `“${keyword}”下没有结果，可以换个关键词试试。` : '当前没有可展示的馆藏结果。',
+            actions: [{ href: '/member/catalog', label: '去完整书目页' }],
+          })}</div>`
+        );
+        return;
+      }
+      ui.render(output, renderBookList(items, keyword ? `已按“${keyword}”筛出相关馆藏。` : '已展示当前馆藏图书。'));
+    }
+
+    function renderRecommendations(payload) {
+      if (payload?.error) {
+        ui.renderError(output, payload, [{ href: '/member/catalog', label: '去图书列表' }]);
+        return;
+      }
+      const items = payload?.data || [];
+      if (!items.length) {
+        ui.render(
+          output,
+          `<div class="feedback-stack">${ui.empty({
+            title: '暂时还没有推荐结果',
+            description: '可以先完成一次借阅，系统会根据借阅记录生成更贴近的推荐。',
+            actions: [{ href: '/member/catalog', label: '先去浏览馆藏' }],
+          })}</div>`
+        );
+        return;
+      }
+      ui.render(output, renderBookList(items, '推荐结果会结合你的借阅记录、热门馆藏和新到馆图书动态生成。', { recommended: true }));
+    }
+
+    document.getElementById('search-btn').onclick = async () => {
+      if (!ensureReaderSession()) return;
+      const keyword = document.getElementById('keyword').value.trim();
+      const response = await fetch(`/books?${new URLSearchParams({ keyword, page: '1', pageSize: '20' }).toString()}`);
+      const payload = await response.json().catch(() => ({
+        error: { code: 'HTTP_ERROR', message: 'Server returned a non-JSON response', details: {} },
+      }));
+      renderSearch(payload, keyword);
+    };
+
+    document.getElementById('recommend-btn').onclick = async () => {
+      const payload = await memberApi('/recommendations');
+      if (payload) renderRecommendations(payload);
+    };
+
+    document.querySelectorAll('[data-href]').forEach((node) => {
+      node.addEventListener('click', () => {
+        window.location.href = node.getAttribute('data-href');
+      });
+    });
+
+    auth.ready.then(() => {
+      if (ensureReaderSession()) {
+        renderInitialState();
+        memberApi('/me').then((payload) => payload && renderSummary(payload));
+      }
+    });
+  </script>
+{% endblock %}

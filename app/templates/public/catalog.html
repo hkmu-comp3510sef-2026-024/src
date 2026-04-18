@@ -1,0 +1,270 @@
+{% extends "base.html" %}
+
+{% block title %}馆藏检索{% endblock %}
+
+{% block page_class %}page--catalog{% endblock %}
+
+{% block content %}
+  <section class="scene scene--portal">
+    <div class="scene-search scene-search--actions">
+      <input
+        id="search-keyword"
+        class="scene-search__field"
+        placeholder="输入书名、作者、分类或编号"
+      />
+      <a id="search-entry-link" class="scene-search__ghost" href="/login">登录 / 注册</a>
+      <button id="search-btn" class="scene-search__button" type="button">立即搜索</button>
+    </div>
+
+    <div class="workspace-layout workspace-layout--wide">
+      <div class="workspace-main">
+        <section class="surface-card stack">
+          <div class="toolbar-row toolbar-row--spread">
+            <div>
+              <div class="card-heading"><h2>馆藏检索</h2></div>
+              <p class="card-intro">输入书名、作者、分类或图书编号后，列表会自动更新；也可以结合作者、分类和可借状态一起筛选。</p>
+            </div>
+            <div class="toolbar-actions">
+              <a class="soft-link" href="/portal/detail">按编号看详情</a>
+            </div>
+          </div>
+
+          <div class="filter-grid">
+            <div class="field">
+              <label for="search-author">作者</label>
+              <input id="search-author" placeholder="例如 东野圭吾 / Tolkien" />
+            </div>
+            <div class="field">
+              <label for="search-category">分类</label>
+              <select id="search-category">
+                <option value="">全部分类</option>
+                <option value="文学">文学</option>
+                <option value="科幻">科幻</option>
+                <option value="奇幻">奇幻</option>
+                <option value="推理">推理</option>
+                <option value="历史">历史</option>
+                <option value="传记">传记</option>
+                <option value="哲学">哲学</option>
+                <option value="心理">心理</option>
+                <option value="商业">商业</option>
+                <option value="科学">科学</option>
+                <option value="计算机">计算机</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="search-available">可借状态</label>
+              <select id="search-available">
+                <option value="false">全部图书</option>
+                <option value="true">只看现在可借</option>
+              </select>
+            </div>
+          </div>
+
+          <div id="book-results" class="list-shell"></div>
+        </section>
+      </div>
+
+      <aside class="workspace-side">
+        <section class="surface-card sticky-card stack">
+          <div class="card-heading"><h2>下一步</h2></div>
+          <p id="next-step-note" class="aside-note">先挑书；想继续借阅、预约或查看借阅记录时，再登录进入对应功能页面。</p>
+          <div id="next-step-actions" class="result-actions">
+            <a class="soft-link" href="/login">去登录</a>
+            <a class="soft-link" href="/register">注册账号</a>
+          </div>
+        </section>
+      </aside>
+    </div>
+  </section>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    const ui = window.LibraryUi;
+    const auth = window.LibraryAuth;
+    const i18n = window.LibraryI18n;
+    const results = document.getElementById('book-results');
+    const searchEntryLink = document.getElementById('search-entry-link');
+    const nextStepNote = document.getElementById('next-step-note');
+    const nextStepActions = document.getElementById('next-step-actions');
+    function syncFiltersFromQuery() {
+      const params = new URLSearchParams(window.location.search);
+      document.getElementById('search-keyword').value = params.get('keyword') || '';
+      document.getElementById('search-author').value = params.get('author') || '';
+
+      const category = params.get('category') || '';
+      if ([...document.getElementById('search-category').options].some((option) => option.value === category)) {
+        document.getElementById('search-category').value = category;
+      }
+
+      const availableOnly = params.get('availableOnly');
+      if (availableOnly === 'true' || availableOnly === 'false') {
+        document.getElementById('search-available').value = availableOnly;
+      }
+    }
+
+    function renderInitialState() {
+      ui.render(
+        results,
+        `<div class="feedback-stack">${ui.empty({
+          title: '先看看这些推荐书',
+          description: '默认先展示一批推荐馆藏。输入关键词或筛选条件后，结果会自动切换。',
+          actions: [{ href: '/portal/detail', label: '按编号看详情' }],
+        })}</div>`
+      );
+    }
+
+    function renderBookList(payload, queryLabel, availableOnly) {
+      const items = payload?.data?.items || [];
+      if (!items.length) {
+        results.innerHTML = `<div class="feedback-stack">${ui.empty({
+          title: '没有找到符合条件的图书',
+          description: queryLabel
+            ? `当前条件“${queryLabel}”下没有结果，可以换个关键词再试。`
+            : '当前没有可展示的馆藏结果。',
+          actions: [{ href: '/portal/detail', label: '按编号看详情' }],
+        })}</div>`;
+        return;
+      }
+
+      const title = queryLabel || availableOnly
+        ? `当前找到 ${items.length} 本图书`
+        : `为你挑了 ${items.length} 本推荐书`;
+      const description = queryLabel
+        ? `已经按“${queryLabel}”筛出相关馆藏。`
+        : availableOnly
+          ? '当前只显示馆内现在可以借走的图书。'
+          : '先给你看一批更容易上手的热门馆藏。';
+
+      results.innerHTML = `
+        <div class="feedback-stack">
+          ${ui.banner({ tone: queryLabel ? 'info' : 'success', title, description })}
+          <div class="entity-list">
+            ${items
+              .map(
+                (book) => `
+                  <article class="entity-card">
+                    <div class="entity-card__header">
+                      <div>
+                        <h3 class="entity-card__title">${ui.escapeHtml(book.title)}</h3>
+                        <p class="entity-card__subtitle">${ui.escapeHtml(book.author || '未知作者')} / ${ui.escapeHtml(book.category || '未分类')}</p>
+                      </div>
+                      <div class="result-badges">
+                        ${ui.badge((book.availableCopies ?? 0) > 0 ? '现在可借' : '暂时借不到', (book.availableCopies ?? 0) > 0 ? 'success' : 'warning')}
+                      </div>
+                    </div>
+                    <div class="metric-strip">
+                      <div class="metric-chip">
+                        <span class="metric-chip__label">图书编号</span>
+                        <strong class="metric-chip__value">${ui.escapeHtml(book.id)}</strong>
+                      </div>
+                      <div class="metric-chip">
+                        <span class="metric-chip__label">可借数量</span>
+                        <strong class="metric-chip__value">${ui.escapeHtml(book.availableCopies ?? 0)}</strong>
+                      </div>
+                    </div>
+                    <p class="entity-card__summary">${ui.escapeHtml(book.description || '暂无简介')}</p>
+                    <div class="entity-card__footer">
+                      <a class="soft-link" href="/portal/detail?bookId=${book.id}">查看详情</a>
+                    </div>
+                  </article>
+                `
+              )
+              .join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    function renderActionLinks(actions) {
+      nextStepActions.innerHTML = actions
+        .map((action) => `<a class="soft-link" href="${ui.escapeHtml(action.href)}">${ui.escapeHtml(action.label)}</a>`)
+        .join('');
+    }
+
+    function refreshSignedInActions() {
+      const role = auth.getRole();
+      const canUseMemberPortal = auth.canUseMemberPortal();
+      const canUseAdminPortal = auth.canUseAdminPortal();
+
+      if (!role) {
+        searchEntryLink.textContent = i18n.t('登录 / 注册');
+        searchEntryLink.href = '/login';
+        nextStepNote.textContent = i18n.t('先挑书；想继续借阅、预约或查看借阅记录时，再登录进入对应功能页面。');
+        renderActionLinks([
+          { href: '/login', label: '去登录' },
+          { href: '/register', label: '注册账号' },
+        ]);
+        return;
+      }
+
+      if (canUseAdminPortal) {
+        searchEntryLink.textContent = i18n.t('进入管理后台');
+        searchEntryLink.href = '/admin/portal';
+      } else if (canUseMemberPortal) {
+        searchEntryLink.textContent = i18n.t('进入读者服务');
+        searchEntryLink.href = '/member';
+      } else {
+        searchEntryLink.textContent = i18n.t('查看我的账号');
+        searchEntryLink.href = '/login';
+      }
+
+      if (role === 'ADMIN') {
+        nextStepNote.textContent = i18n.t('你已登录管理员账号，可以直接进入管理后台，也可以进入读者服务查看普通用户侧的实际体验。');
+        renderActionLinks([
+          { href: '/admin/portal', label: '进入管理后台' },
+          { href: '/member', label: '进入读者服务' },
+        ]);
+        return;
+      }
+
+      if (role === 'LIBRARIAN') {
+        nextStepNote.textContent = i18n.t('你已登录馆员账号，可以直接进入管理后台处理借还、馆藏和罚款业务。');
+        renderActionLinks([
+          { href: '/admin/portal', label: '进入管理后台' },
+        ]);
+        return;
+      }
+
+      nextStepNote.textContent = i18n.t('你已登录读者账号，选好书后可以直接进入读者服务办理借阅、预约和查看通知。');
+      renderActionLinks([
+        { href: '/member', label: '进入读者服务' },
+      ]);
+    }
+
+    async function loadBooks() {
+      const query = new URLSearchParams({
+        keyword: document.getElementById('search-keyword').value.trim(),
+        author: document.getElementById('search-author').value.trim(),
+        category: document.getElementById('search-category').value,
+        availableOnly: document.getElementById('search-available').value,
+        page: '1',
+        pageSize: '12',
+      });
+      const response = await fetch(`/books?${query.toString()}`);
+      const payload = await response.json().catch(() => ({ data: { items: [] } }));
+      const queryLabel = [query.get('keyword'), query.get('author'), query.get('category')].filter(Boolean).join(' / ');
+      renderBookList(payload, queryLabel, query.get('availableOnly') === 'true');
+    }
+
+    document.getElementById('search-btn').onclick = loadBooks;
+    ['search-keyword', 'search-author', 'search-category', 'search-available'].forEach((id) => {
+      document.getElementById(id).addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+          loadBooks();
+        }
+      });
+    });
+
+    window.addEventListener('library-auth-changed', refreshSignedInActions);
+    window.addEventListener('library-lang-changed', () => {
+      refreshSignedInActions();
+      loadBooks();
+    });
+
+    refreshSignedInActions();
+    syncFiltersFromQuery();
+    renderInitialState();
+    loadBooks();
+  </script>
+{% endblock %}

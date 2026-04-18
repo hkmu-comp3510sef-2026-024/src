@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+
+{% block title %}统计报表{% endblock %}
+
+{% block page_class %}page--admin-reports{% endblock %}
+
+{% block content %}
+  <section class="scene scene--admin">
+    <div class="scene-search scene-search--actions">
+      <div class="scene-search__input">这里看全馆概况、热门借阅和当前逾期情况。</div>
+      <a class="scene-search__ghost" href="/admin/portal">返回管理工作台</a>
+      <button id="refresh-btn" class="scene-search__button" type="button">刷新报表</button>
+    </div>
+
+    <div class="scene-columns">
+      <section class="glass-card scene-card--span-3">
+        <div class="card-heading"><h2>总体概况</h2></div>
+        <div id="summary-output" class="list-shell"></div>
+      </section>
+
+      <section class="glass-card glass-card--feature">
+        <div class="card-heading"><h2>热门借阅</h2></div>
+        <div id="hot-books-output" class="list-shell"></div>
+      </section>
+
+      <section class="glass-card glass-card--feature">
+        <div class="card-heading"><h2>当前逾期</h2></div>
+        <div id="overdue-output" class="list-shell"></div>
+      </section>
+    </div>
+  </section>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    const ui = window.LibraryUi;
+    const auth = window.LibraryAuth;
+    const summaryOutput = document.getElementById('summary-output');
+    const hotBooksOutput = document.getElementById('hot-books-output');
+    const overdueOutput = document.getElementById('overdue-output');
+
+    function ensureAdminOnly() {
+      if (!auth.getRole() || !auth.canUseAdminPortal() || !auth.isAdmin()) {
+        window.location.href = '/login';
+        return false;
+      }
+      return true;
+    }
+
+    async function adminApi(url) {
+      if (!ensureAdminOnly()) return null;
+      const response = await fetch(url, {
+        headers: { ...auth.getAdminHeaders() },
+        credentials: 'same-origin',
+      });
+      return response.json().catch(() => ({
+        error: { code: 'HTTP_ERROR', message: 'Server returned a non-JSON response', details: {} },
+      }));
+    }
+
+    function renderReport(payload) {
+      if (payload?.error) {
+        ui.renderError(summaryOutput, payload, [{ href: '/admin/portal', label: '返回工作台' }]);
+        return;
+      }
+
+      const totals = payload?.data?.totals || {};
+      const hotBooks = payload?.data?.hotBooks || [];
+      const overdueLoans = payload?.data?.overdueLoans || [];
+
+      ui.render(
+        summaryOutput,
+        `${ui.metricGrid([
+          { label: '账号总数', value: totals.users ?? 0 },
+          { label: '图书总数', value: totals.books ?? 0 },
+          { label: '借阅中', value: totals.activeLoans ?? 0 },
+          { label: '逾期中', value: totals.overdueLoans ?? 0 },
+          { label: '未缴罚款', value: totals.unpaidFines ?? 0 },
+        ])}`
+      );
+
+      ui.render(
+        hotBooksOutput,
+        hotBooks.length
+          ? hotBooks.map((book) => ui.card({
+              title: book.title,
+              meta: [`图书编号 ${book.bookId}`],
+              details: ui.infoList([{ label: '借阅次数', value: book.borrowCount }]),
+            })).join('')
+          : ui.empty({ title: '还没有热门借阅数据', description: '只要产生借阅记录，这里就会自动汇总。' })
+      );
+
+      ui.render(
+        overdueOutput,
+        overdueLoans.length
+          ? overdueLoans.map((loan) => ui.card({
+              title: loan.bookTitle || `图书编号 ${loan.bookId}`,
+              meta: [`借阅编号 ${loan.loanId}`, `读者编号 ${loan.userId}`],
+              details: ui.infoList([{ label: '应还时间', value: ui.formatDateTime(loan.dueAt) }]),
+              actions: [{ href: '/admin/circulation-page', label: '去借书 / 还书页' }],
+            })).join('')
+          : ui.empty({ title: '当前没有逾期借阅', description: '只要出现逾期记录，这里就会列出来。' })
+      );
+    }
+
+    async function loadReport() {
+      const payload = await adminApi('/admin/reports/summary');
+      if (payload) renderReport(payload);
+    }
+
+    document.getElementById('refresh-btn').onclick = loadReport;
+
+    auth.ready.then(() => {
+      if (ensureAdminOnly()) {
+        loadReport();
+      }
+    });
+  </script>
+{% endblock %}

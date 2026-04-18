@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>借书 / 还书</title>
+    <link rel="stylesheet" href="/static/assets/brand.css" />
+  </head>
+  <body class="">
+    <header class="site-header">
+      <div class="site-header__inner">
+        <a class="brandmark" href="/">
+          <span class="brandmark__icon" aria-hidden="true"></span>
+          <span class="brandmark__copy">
+            <strong>图书借阅与会员管理系统</strong>
+            <small>馆藏检索与读者服务</small>
+          </span>
+        </a>
+
+        <nav class="main-nav" aria-label="主导航">
+          <a class="" href="/">首页</a>
+          <a class="" href="/portal">馆藏检索</a>
+          <a class="" href="/member">读者服务</a>
+        </nav>
+
+        <div class="header-actions">
+          <div class="lang-switch" aria-label="Language switch">
+            <button class="lang-switch__button" data-lang-switch="zh-CN" type="button">中文</button>
+            <button class="lang-switch__button" data-lang-switch="en" type="button">EN</button>
+          </div>
+          <a id="access-entry" class="header-action" href="/login">登录/注册</a>
+          <div id="account-menu" class="account-menu account-menu--hidden">
+            <a id="member-entry" class="account-menu__item account-menu__item--hidden" href="/member">进入读者服务</a>
+            <a id="admin-entry" class="account-menu__item account-menu__item--hidden" href="/admin/portal">进入管理后台</a>
+            <button id="logout-entry" class="account-menu__item account-menu__button" type="button">退出登录</button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <div class="notice-bar">
+      <div class="notice-bar__inner">
+        <span id="notice-title" class="notice-bar__label" data-i18n-skip="true">公告</span>
+        <p id="notice-message" data-i18n-skip="true">正在加载最新公告…</p>
+      </div>
+    </div>
+
+    <main class="page page--admin-circulation">
+      <section class="scene scene--admin">
+    <div class="scene-search scene-search--actions">
+      <div class="scene-search__input">柜台借书、还书都在这里办理。还书时，直接从下方“借阅中列表”点一条记录即可。</div>
+      <a class="scene-search__ghost" href="/admin/portal">返回管理工作台</a>
+      <button id="dashboard-btn" class="scene-search__button" type="button">刷新数据</button>
+    </div>
+
+    <div class="workspace-layout workspace-layout--wide">
+      <div class="workspace-main">
+        <section class="surface-card stack">
+          <div class="toolbar-row toolbar-row--spread">
+            <div>
+              <div class="card-heading"><h2>借书办理</h2></div>
+              <p class="card-intro">优先输入读者编号和图书编号，系统会自动分配可借副本；如果手里已经拿到实体书，也可以直接录入条码。</p>
+            </div>
+          </div>
+          <div class="inline-form">
+            <div class="field">
+              <label for="checkout-user-id">读者编号</label>
+              <input id="checkout-user-id" placeholder="例如 2" />
+            </div>
+            <div class="field">
+              <label for="checkout-book-id">图书编号</label>
+              <input id="checkout-book-id" placeholder="系统自动分配副本时填写" />
+            </div>
+            <div class="field">
+              <label for="checkout-copy-id">馆藏副本编号</label>
+              <input id="checkout-copy-id" placeholder="指定副本时填写" />
+            </div>
+            <div class="field">
+              <label for="checkout-barcode">条码</label>
+              <input id="checkout-barcode" placeholder="有条码时可直接录入" />
+            </div>
+            <div class="button-row">
+              <button id="checkout-btn" type="button">办理借书</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="surface-card stack">
+          <div class="toolbar-row toolbar-row--spread">
+            <div>
+              <div class="card-heading"><h2>还书办理</h2></div>
+              <p class="card-intro">先从借阅中列表点选一条记录，系统会自动带入借阅编号；也可以手动输入借阅编号再还书。</p>
+            </div>
+          </div>
+          <div class="inline-form">
+            <div class="field">
+              <label for="loan-id">借阅编号</label>
+              <input id="loan-id" placeholder="可从下方借阅中列表直接带入" />
+            </div>
+            <div class="field">
+              <label for="checkin-condition">归还结果</label>
+              <select id="checkin-condition">
+                <option value="OK">正常归还</option>
+                <option value="DAMAGED">书籍破损</option>
+                <option value="LOST">书籍遗失</option>
+              </select>
+            </div>
+            <div class="button-row">
+              <button id="checkin-btn" type="button">办理还书</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="surface-card stack">
+          <div class="toolbar-row toolbar-row--spread">
+            <div>
+              <div class="card-heading"><h2>借阅中列表</h2></div>
+              <p class="card-intro">这里会列出当前所有未归还图书。点一条记录即可自动带入借阅编号去办理还书。</p>
+            </div>
+          </div>
+          <div class="filter-grid">
+            <div class="field">
+              <label for="loan-search-keyword">搜索</label>
+              <input id="loan-search-keyword" placeholder="按读者、图书名、条码或编号搜索" />
+            </div>
+          </div>
+          <div class="button-row">
+            <button id="loan-search-btn" class="secondary" type="button">刷新借阅中列表</button>
+          </div>
+          <div id="active-loans-output" class="list-shell"></div>
+        </section>
+      </div>
+
+      <aside class="workspace-side">
+        <section class="surface-card sticky-card stack">
+          <div class="card-heading"><h2>当前概览</h2></div>
+          <div id="dashboard-output" class="list-shell"></div>
+        </section>
+
+        <section class="surface-card stack">
+          <div class="card-heading"><h2>办理结果</h2></div>
+          <div id="feedback-output" class="list-shell"></div>
+        </section>
+      </aside>
+    </div>
+  </section>
+    </main>
+
+    <script>
+      window.LibraryConfig = {
+        apiBase: 'http://localhost:23123'
+      };
+    </script>
+    <script src="/static/assets/i18n_runtime.js"></script>
+    <script src="/static/assets/base_runtime.js"></script>
+    <script>
+      (async () => {
+        const i18n = window.LibraryI18n;
+        const titleNode = document.getElementById('notice-title');
+        const messageNode = document.getElementById('notice-message');
+        let announcementMode = 'system';
+        const defaultTitle = '开放时间提醒';
+        const defaultMessage = '欢迎使用图书馆服务。借书、还书和预约办理请按页面提示操作。';
+        function renderSystemNotice() {
+          titleNode.textContent = i18n.t(defaultTitle);
+          messageNode.textContent = i18n.t(defaultMessage);
+        }
+        if (!titleNode || !messageNode) return;
+        titleNode.textContent = i18n.t('公告');
+        messageNode.textContent = i18n.t('正在加载最新公告…');
+        try {
+          const response = await fetch('/announcements/current');
+          const payload = await response.json();
+          if (payload?.data?.message) {
+            const nextTitle = payload?.data?.title || defaultTitle;
+            const nextMessage = payload.data.message;
+            announcementMode = nextTitle === defaultTitle && nextMessage === defaultMessage ? 'system' : 'custom';
+            titleNode.textContent = announcementMode === 'system' ? i18n.t(defaultTitle) : nextTitle;
+            messageNode.textContent = announcementMode === 'system' ? i18n.t(defaultMessage) : nextMessage;
+          } else {
+            renderSystemNotice();
+          }
+        } catch {
+          renderSystemNotice();
+        }
+        window.addEventListener('library-lang-changed', () => {
+          if (announcementMode === 'system') {
+            renderSystemNotice();
+          }
+        });
+      })();
+    </script>
+    <script>
+    const ui = window.LibraryUi;
+    const auth = window.LibraryAuth;
+    const dashboardOutput = document.getElementById('dashboard-output');
+    const feedbackOutput = document.getElementById('feedback-output');
+    const activeLoansOutput = document.getElementById('active-loans-output');
+    let activeLoansState = [];
+
+    function ensureStaffSession() {
+      if (!auth.getRole() || !auth.canUseAdminPortal()) {
+        window.location.href = '/login';
+        return false;
+      }
+      return true;
+    }
+
+    async function adminApi(url, options = {}) {
+      if (!ensureStaffSession()) return null;
+      const response = await fetch(url, {
+        headers: {
+          'Content-Type': 'application/json',
+          ...auth.getAdminHeaders(),
+          ...(options.headers || {}),
+        },
+        credentials: 'same-origin',
+        ...options,
+      });
+      return response.json().catch(() => ({
+        error: { code: 'HTTP_ERROR', message: 'Server returned a non-JSON response', details: {} },
+      }));
+    }
+
+    function renderDashboard(payload) {
+      if (payload?.error) {
+        ui.renderError(dashboardOutput, payload, [{ href: '/admin/portal', label: '返回工作台' }]);
+        return;
+      }
+      const data = payload?.data || {};
+      ui.render(
+        dashboardOutput,
+        `
+          <div class="feedback-stack">
+            ${ui.metricGrid([
+              { label: '账号总数', value: data.users ?? 0 },
+              { label: '图书总数', value: data.books ?? 0 },
+              { label: '借阅中', value: data.activeLoans ?? 0 },
+              { label: '待审核会员', value: data.pendingMembers ?? 0 },
+            ])}
+            <div class="result-actions">
+              <a class="soft-link" href="/admin/fines-page">查看罚款</a>
+            </div>
+          </div>
+        `
+      );
+    }
+
+    function renderCheckoutResult(payload) {
+      if (payload?.error) {
+        ui.renderError(feedbackOutput, payload, [{ href: '/admin/circulation-page', label: '重新核对借书信息' }]);
+        return;
+      }
+      const loan = payload?.data;
+      ui.render(
+        feedbackOutput,
+        `
+          <div class="feedback-stack">
+            ${ui.banner({
+              tone: 'success',
+              title: '借书办理成功',
+              description: `借阅编号 ${loan.id} 已创建，到期时间为 ${ui.formatDateTime(loan.due_at)}。`,
+              actions: [{ href: '/admin/circulation-page', label: '继续办理下一位' }],
+            })}
+            ${ui.metricGrid([
+              { label: '读者编号', value: loan.user_id },
+              { label: '图书编号', value: loan.book_id },
+              { label: '馆藏副本编号', value: loan.copy_id },
+            ])}
+          </div>
+        `
+      );
+    }
+
+    function renderCheckinResult(payload) {
+      if (payload?.error) {
+        ui.renderError(feedbackOutput, payload, [{ href: '/admin/circulation-page', label: '重新核对还书信息' }]);
+        return;
+      }
+      const loan = payload?.data;
+      const fine = loan?.fine || null;
+      const hasFine = Boolean(fine);
+      const fineAmount = hasFine ? `${fine.amount} ${fine.currency || 'CNY'}` : '未生成';
+      const copyStatus = loan?.copyStatus ? ui.labelForStatus(loan.copyStatus) : '已更新';
+      const isLost = loan?.condition === 'LOST';
+      const isDamaged = loan?.condition === 'DAMAGED';
+      const title = isLost ? '遗失登记成功' : isDamaged ? '破损登记成功' : '还书办理成功';
+      const tone = isLost ? 'danger' : isDamaged || hasFine ? 'warning' : 'success';
+      const description = hasFine
+        ? `借阅编号 ${loan.id} 已处理，系统已生成罚款 ${fineAmount}，原因：${fine.reason}。`
+        : `借阅编号 ${loan.id} 已处理，本次未生成罚款，副本状态已更新为“${copyStatus}”。`;
+      ui.render(
+        feedbackOutput,
+        `
+          <div class="feedback-stack">
+            ${ui.banner({
+              tone,
+              title,
+              description,
+              actions: [
+                { href: '/admin/fines-page', label: hasFine ? '去处理这笔罚款' : '查看罚款列表' },
+                { href: '/admin/circulation-page', label: '继续办理下一位' },
+              ],
+            })}
+            ${ui.metricGrid([
+              { label: '读者编号', value: loan.user_id },
+              { label: '图书编号', value: loan.book_id },
+              { label: '副本状态', value: copyStatus },
+              { label: '归还时间', value: ui.formatDateTime(loan.return_at) },
+              { label: '罚款金额', value: fineAmount },
+            ])}
+            ${hasFine ? ui.infoList([
+              { label: '罚款原因', value: fine.reason },
+              { label: '罚款状态', value: ui.labelForStatus(fine.status) },
+            ]) : ''}
+          </div>
+        `
+      );
+    }
+
+    function renderActiveLoans(payload) {
+      if (payload?.error) {
+        ui.renderError(activeLoansOutput, payload, [{ href: '/admin/circulation-page', label: '重新加载借阅中列表' }]);
+        return;
+      }
+
+      activeLoansState = payload?.data?.items || [];
+      if (!activeLoansState.length) {
+        ui.render(
+          activeLoansOutput,
+          `<div class="feedback-stack">${ui.empty({
+            title: '当前没有借阅中的图书',
+            description: '只要有未归还图书，这里就会自动显示对应借阅记录。',
+          })}</div>`
+        );
+        return;
+      }
+
+      activeLoansOutput.innerHTML = `
+        <div class="feedback-stack">
+          ${ui.banner({
+            tone: 'info',
+            title: `当前共有 ${activeLoansState.length} 条借阅中记录`,
+            description: '点击任意一条记录，会自动带入借阅编号到上方“还书办理”表单。',
+          })}
+          <div class="entity-list">
+            ${activeLoansState
+              .map(
+                (loan) => `
+                  <article class="entity-card" data-loan-id="${loan.id}">
+                    <div class="entity-card__header">
+                      <div>
+                        <h3 class="entity-card__title">${ui.escapeHtml(loan.bookTitle || `图书编号 ${loan.bookId}`)}</h3>
+                        <p class="entity-card__subtitle">${ui.escapeHtml(loan.userName || loan.userEmail || `读者编号 ${loan.userId}`)}</p>
+                      </div>
+                      <div class="result-badges">
+                        ${ui.statusBadge(loan.status)}
+                        ${loan.isOverdue ? ui.badge('已逾期', 'danger') : ui.badge('借阅中', 'info')}
+                      </div>
+                    </div>
+                    <div class="metric-strip">
+                      <div class="metric-chip">
+                        <span class="metric-chip__label">借阅编号</span>
+                        <strong class="metric-chip__value">${ui.escapeHtml(loan.id)}</strong>
+                      </div>
+                      <div class="metric-chip">
+                        <span class="metric-chip__label">副本编号</span>
+                        <strong class="metric-chip__value">${ui.escapeHtml(loan.copyId)}</strong>
+                      </div>
+                    </div>
+                    <p class="entity-card__summary">${ui.t('条码：')}${ui.escapeHtml(loan.barcode || ui.t('暂无'))}，${ui.t('应还时间')}：${ui.formatDateTime(loan.dueAt)}</p>
+                    <div class="entity-card__footer">
+                      <button class="secondary" type="button" data-fill-loan-id="${loan.id}">带入还书</button>
+                    </div>
+                  </article>
+                `
+              )
+              .join('')}
+          </div>
+        </div>
+      `;
+
+      activeLoansOutput.querySelectorAll('[data-fill-loan-id]').forEach((button) => {
+        button.addEventListener('click', (event) => {
+          event.stopPropagation();
+          fillLoanId(button.getAttribute('data-fill-loan-id'));
+        });
+      });
+      activeLoansOutput.querySelectorAll('[data-loan-id]').forEach((card) => {
+        card.addEventListener('click', () => {
+          fillLoanId(card.getAttribute('data-loan-id'));
+        });
+      });
+    }
+
+    function fillLoanId(loanId) {
+      const loanInput = document.getElementById('loan-id');
+      loanInput.value = loanId;
+      ui.render(
+        feedbackOutput,
+        `<div class="feedback-stack">${ui.banner({
+          tone: 'info',
+          title: `已选中借阅编号 ${loanId}`,
+          description: '现在可以直接点击“办理还书”，也可以先修改归还结果再提交。',
+        })}</div>`
+      );
+      window.setTimeout(() => {
+        loanInput.focus({ preventScroll: true });
+        loanInput.scrollIntoView({ behavior: 'auto', block: 'center' });
+      }, 0);
+    }
+
+    async function loadDashboard() {
+      const payload = await adminApi('/admin/dashboard');
+      if (payload) {
+        renderDashboard(payload);
+      }
+    }
+
+    async function loadActiveLoans() {
+      const keyword = document.getElementById('loan-search-keyword').value.trim();
+      const query = new URLSearchParams({
+        status: 'ACTIVE',
+        page: '1',
+        pageSize: '50',
+      });
+      if (keyword) {
+        query.set('keyword', keyword);
+      }
+      const payload = await adminApi(`/admin/loans?${query.toString()}`);
+      if (payload) {
+        renderActiveLoans(payload);
+      }
+    }
+
+    document.getElementById('dashboard-btn').onclick = () => {
+      loadDashboard();
+      loadActiveLoans();
+    };
+    document.getElementById('loan-search-btn').onclick = loadActiveLoans;
+
+    document.getElementById('checkout-btn').onclick = async () => {
+      const payload = await adminApi('/admin/loans/checkout', {
+        method: 'POST',
+        body: JSON.stringify({
+          userId: Number(document.getElementById('checkout-user-id').value),
+          bookId: document.getElementById('checkout-book-id').value ? Number(document.getElementById('checkout-book-id').value) : null,
+          copyId: document.getElementById('checkout-copy-id').value ? Number(document.getElementById('checkout-copy-id').value) : null,
+          barcode: document.getElementById('checkout-barcode').value || null,
+        }),
+      });
+      if (payload) {
+        renderCheckoutResult(payload);
+        if (!payload.error) {
+          loadDashboard();
+          loadActiveLoans();
+        }
+      }
+    };
+
+    document.getElementById('checkin-btn').onclick = async () => {
+      const loanId = document.getElementById('loan-id').value.trim();
+      if (!loanId) {
+        ui.render(
+          feedbackOutput,
+          `<div class="feedback-stack">${ui.banner({
+            tone: 'warning',
+            title: '请先选择要归还的借阅记录',
+            description: '可以直接从下方借阅中列表点一条记录，系统会自动带入借阅编号。',
+          })}</div>`
+        );
+        return;
+      }
+      const payload = await adminApi(`/admin/loans/${loanId}/checkin`, {
+        method: 'POST',
+        body: JSON.stringify({ condition: document.getElementById('checkin-condition').value, notes: null }),
+      });
+      if (payload) {
+        renderCheckinResult(payload);
+        if (!payload.error) {
+          document.getElementById('loan-id').value = '';
+          loadDashboard();
+          loadActiveLoans();
+        }
+      }
+    };
+
+    auth.ready.then(() => {
+      if (ensureStaffSession()) {
+        ui.render(
+        feedbackOutput,
+        `<div class="feedback-stack">${ui.empty({
+          title: '办理结果会显示在这里',
+          description: '借书或还书成功后，这里会明确告诉你发生了什么，以及下一步该去哪处理。',
+        })}</div>`
+      );
+        loadDashboard();
+        loadActiveLoans();
+      }
+    });
+  </script>
+  </body>
+</html>
