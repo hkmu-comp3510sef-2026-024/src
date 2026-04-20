@@ -68,6 +68,12 @@ A modern, comprehensive library management system built with **FastAPI** and **P
 
 ---
 
+## 🎬 Demo
+
+https://pub-bbd1ab5658d841a7bda960fb9a2c035e.r2.dev/output.mp4
+
+---
+
 ## 🛠️ Technology Stack
 
 ### Backend
